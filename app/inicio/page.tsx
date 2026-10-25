@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { supabase } from "../../lib/supabase";
 
 type Usuario = {
   nome: string;
@@ -11,11 +12,12 @@ type Usuario = {
 };
 
 type Restricao = {
+  id: string;
   nome: string;
   sobrenome: string;
   data: string;
-  motivo: string;
-  periodo?: "manha" | "tarde";
+  motivo: string | null;
+  periodo?: "manha" | "tarde" | null;
 };
 
 type ItemEscala = {
@@ -29,11 +31,11 @@ type DiaEscala = {
   itens: ItemEscala[];
 };
 
-type Plantao = {
-  data: string;
-  funcao: string;
-  nome: string;
-  periodo: "manha" | "tarde";
+type AvisoPublicado = {
+  id: string;
+  imagem_url: string;
+  observacao: string | null;
+  criado_em: string;
 };
 
 const MESES = [
@@ -51,6 +53,9 @@ const MESES = [
   "Dezembro",
 ];
 
+// Guarda qual seção estava aberta para restaurar ao recarregar a página.
+const SECAO_KEY = "inicio:secao-aberta";
+
 const rotulosFuncoes: Record<string, string> = {
   "Projeção (Holyrics)": "HOLYRICS",
   "Áudio (Som)": "SOM",
@@ -61,9 +66,6 @@ const rotulosFuncoes: Record<string, string> = {
 
 const rotuloFuncao = (funcao: string) => rotulosFuncoes[funcao] ?? funcao;
 
-const rotuloPeriodo = (periodo: "manha" | "tarde") =>
-  periodo === "manha" ? "Manhã" : "Noite";
-
 const normalizarNome = (nome: string | null | undefined) =>
   (nome ?? "")
     .trim()
@@ -72,6 +74,7 @@ const normalizarNome = (nome: string | null | undefined) =>
 
 const nomeDiaSemana = (iso: string) => {
   const [ano, mes, dia] = iso.split("-").map(Number);
+
   return new Date(ano, mes - 1, dia).toLocaleDateString("pt-BR", {
     weekday: "long",
   });
@@ -92,6 +95,15 @@ const formatarDiaMes = (iso: string) => {
   return `${dia}/${mes}`;
 };
 
+const formatarDataHora = (valor: string) =>
+  new Date(valor).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
 const nomePeriodoRestricao = (restricao: Restricao) =>
   restricao.periodo === "manha"
     ? "Manhã"
@@ -99,15 +111,20 @@ const nomePeriodoRestricao = (restricao: Restricao) =>
       ? "Tarde"
       : "Dia inteiro";
 
+// Funções que viram botão de ensaio na parte da noite.
+const funcoesComEnsaio = ["HOLYRICS", "OBS"];
+
 export default function InicioPage() {
   const router = useRouter();
 
   const [usuario, setUsuario] = useState<Usuario | null>(null);
   const [restricoes, setRestricoes] = useState<Restricao[]>([]);
+  const [erroRestricoes, setErroRestricoes] = useState("");
   const [mostrarRestricoes, setMostrarRestricoes] = useState(false);
 
   const [modalAberto, setModalAberto] = useState(false);
   const [data, setData] = useState("");
+  const [periodo, setPeriodo] = useState<"manha" | "tarde" | "">("");
   const [motivo, setMotivo] = useState("");
 
   const [restricaoEditando, setRestricaoEditando] =
@@ -121,6 +138,71 @@ export default function InicioPage() {
   const [mostrarEscala, setMostrarEscala] = useState(false);
   const [escalaPublicada, setEscalaPublicada] = useState<DiaEscala[]>([]);
 
+  const [mostrarAvisos, setMostrarAvisos] = useState(false);
+  const [avisosPublicados, setAvisosPublicados] = useState<AvisoPublicado[]>(
+    []
+  );
+
+  const [notificacao, setNotificacao] = useState("");
+  const [aviso, setAviso] = useState("");
+  const [restricaoParaApagar, setRestricaoParaApagar] =
+    useState<Restricao | null>(null);
+
+  const carregarRestricoes = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("restricoes")
+      .select("id, nome, sobrenome, data, motivo, periodo")
+      .order("data", { ascending: true });
+
+    if (error) {
+      console.error("Erro ao carregar restrições:", error);
+      setErroRestricoes(
+        `Não foi possível carregar as restrições: ${error.message}`
+      );
+      return;
+    }
+
+    setRestricoes((data ?? []) as Restricao[]);
+    setErroRestricoes("");
+  }, []);
+
+  const carregarEscala = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("escalas")
+      .select("data, itens")
+      .order("data", { ascending: true });
+
+    if (error) {
+      console.error("Erro ao carregar escala:", error);
+      setAviso(`Não foi possível carregar a escala: ${error.message}`);
+      return;
+    }
+
+    setEscalaPublicada(
+      ((data ?? []) as { data: string; itens: ItemEscala[] | null }[]).map(
+        (dia) => ({
+          data: dia.data,
+          itens: dia.itens ?? [],
+        })
+      )
+    );
+  }, []);
+
+  const carregarAvisos = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("avisos")
+      .select("id, imagem_url, observacao, criado_em")
+      .order("criado_em", { ascending: false });
+
+    if (error) {
+      console.error("Erro ao carregar avisos:", error);
+      setAviso(`Não foi possível carregar os avisos: ${error.message}`);
+      return;
+    }
+
+    setAvisosPublicados((data ?? []) as AvisoPublicado[]);
+  }, []);
+
   useEffect(() => {
     const salvo = localStorage.getItem("usuario");
 
@@ -132,67 +214,115 @@ export default function InicioPage() {
     try {
       const usuarioSalvo = JSON.parse(salvo) as Usuario;
       setUsuario(usuarioSalvo);
-
-      const restricoesSalvas = JSON.parse(
-        localStorage.getItem("restricoes") || "[]"
-      );
-      setRestricoes(Array.isArray(restricoesSalvas) ? restricoesSalvas : []);
-
-      const escalaSalva = JSON.parse(
-        localStorage.getItem("escalaPublicada") || "[]"
-      );
-      setEscalaPublicada(Array.isArray(escalaSalva) ? escalaSalva : []);
     } catch {
-      setRestricoes([]);
-      setEscalaPublicada([]);
+      router.replace("/login");
+      return;
     }
-  }, [router]);
+
+    try {
+      const secaoSalva = JSON.parse(
+        localStorage.getItem(SECAO_KEY) || "{}"
+      );
+
+      setMostrarRestricoes(Boolean(secaoSalva.mostrarRestricoes));
+      setMostrarEscala(Boolean(secaoSalva.mostrarEscala));
+      setMostrarAvisos(Boolean(secaoSalva.mostrarAvisos));
+    } catch {
+      // Se o valor estiver inválido, as seções começam fechadas.
+    }
+
+    void carregarRestricoes();
+    void carregarEscala();
+    void carregarAvisos();
+  }, [carregarRestricoes, carregarEscala, carregarAvisos, router]);
+
+  useEffect(() => {
+    if (!notificacao) return;
+
+    const timer = window.setTimeout(() => setNotificacao(""), 6000);
+    return () => window.clearTimeout(timer);
+  }, [notificacao]);
+
+  useEffect(() => {
+    if (!aviso) return;
+
+    const timer = window.setTimeout(() => setAviso(""), 4000);
+    return () => window.clearTimeout(timer);
+  }, [aviso]);
+
+  useEffect(() => {
+    if (!usuario) return;
+
+    localStorage.setItem(
+      SECAO_KEY,
+      JSON.stringify({
+        mostrarRestricoes,
+        mostrarEscala,
+        mostrarAvisos,
+      })
+    );
+  }, [usuario, mostrarRestricoes, mostrarEscala, mostrarAvisos]);
 
   const sair = () => {
     localStorage.removeItem("usuario");
     router.push("/login");
   };
 
-  const salvarRestricoes = (lista: Restricao[]) => {
-    setRestricoes(lista);
-    localStorage.setItem("restricoes", JSON.stringify(lista));
-  };
-
   const fecharModal = () => {
     setModalAberto(false);
     setData("");
+    setPeriodo("");
     setMotivo("");
   };
 
-  const adicionarRestricao = (e: React.FormEvent) => {
+  const adicionarRestricao = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
     if (!usuario) return;
 
-    salvarRestricoes([
-      ...restricoes,
-      {
-        nome: usuario.nome,
-        sobrenome: usuario.sobrenome,
-        data,
-        motivo,
-      },
-    ]);
+    const { error } = await supabase.from("restricoes").insert({
+      nome: usuario.nome,
+      sobrenome: usuario.sobrenome ?? "",
+      data,
+      motivo: motivo.trim() || null,
+      periodo: periodo === "" ? null : periodo,
+    });
+
+    if (error) {
+      console.error("Erro ao salvar restrição:", error);
+      setAviso(`Falha ao salvar a restrição: ${error.message}`);
+      return;
+    }
 
     fecharModal();
+    setAviso("Restrição adicionada.");
+    await carregarRestricoes();
   };
 
-  const apagarRestricao = (restricao: Restricao) => {
-    if (!confirm("Apagar esta restrição?")) return;
+  const apagarRestricao = async () => {
+    if (!restricaoParaApagar) return;
 
-    salvarRestricoes(restricoes.filter((r) => r !== restricao));
+    const { error } = await supabase
+      .from("restricoes")
+      .delete()
+      .eq("id", restricaoParaApagar.id);
+
+    if (error) {
+      console.error("Erro ao apagar restrição:", error);
+      setAviso(`Não foi possível apagar a restrição: ${error.message}`);
+      return;
+    }
+
+    setRestricaoParaApagar(null);
+    setAviso("Restrição apagada.");
+    await carregarRestricoes();
   };
 
   const iniciarEdicao = (restricao: Restricao) => {
     setRestricaoEditando(restricao);
     setDataEdicao(restricao.data);
     setPeriodoEdicao(restricao.periodo ?? "");
-    setMotivoEdicao(restricao.motivo || "");
+    setMotivoEdicao(restricao.motivo ?? "");
   };
 
   const cancelarEdicao = () => {
@@ -202,36 +332,37 @@ export default function InicioPage() {
     setMotivoEdicao("");
   };
 
-  const salvarEdicao = () => {
+  const salvarEdicao = async () => {
     if (!restricaoEditando || !dataEdicao) return;
 
-    salvarRestricoes(
-      restricoes.map((r) =>
-        r === restricaoEditando
-          ? {
-              ...r,
-              data: dataEdicao,
-              motivo: motivoEdicao,
-              periodo: periodoEdicao === "" ? undefined : periodoEdicao,
-            }
-          : r
-      )
-    );
+    const { error } = await supabase
+      .from("restricoes")
+      .update({
+        data: dataEdicao,
+        motivo: motivoEdicao.trim() || null,
+        periodo: periodoEdicao === "" ? null : periodoEdicao,
+      })
+      .eq("id", restricaoEditando.id);
+
+    if (error) {
+      console.error("Erro ao atualizar restrição:", error);
+      setAviso(`Não foi possível atualizar a restrição: ${error.message}`);
+      return;
+    }
 
     cancelarEdicao();
+    setAviso("Restrição atualizada.");
+    await carregarRestricoes();
   };
 
   const alternarEscala = () => {
-    try {
-      const salva = JSON.parse(
-        localStorage.getItem("escalaPublicada") || "[]"
-      );
-      setEscalaPublicada(Array.isArray(salva) ? salva : []);
-    } catch {
-      setEscalaPublicada([]);
-    }
-
+    void carregarEscala();
     setMostrarEscala((visivel) => !visivel);
+  };
+
+  const alternarAvisos = () => {
+    void carregarAvisos();
+    setMostrarAvisos((visivel) => !visivel);
   };
 
   const ehLider = usuario?.atribuicoes?.some(
@@ -254,26 +385,24 @@ export default function InicioPage() {
   const nomeCompleto = normalizarNome(
     `${usuario.nome} ${usuario.sobrenome ?? ""}`
   );
+
   const primeiroNomeUsuario = normalizarNome(usuario.nome);
 
-  const isoHoje = (() => {
-    const hoje = new Date();
+  const hoje = new Date();
+  const isoHoje = `${hoje.getFullYear()}-${String(
+    hoje.getMonth() + 1
+  ).padStart(2, "0")}-${String(hoje.getDate()).padStart(2, "0")}`;
 
-    return `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(
-      2,
-      "0"
-    )}-${String(hoje.getDate()).padStart(2, "0")}`;
-  })();
+  const proximasEscalasPublicadas = [...escalaPublicada].sort((a, b) =>
+  a.data.localeCompare(b.data)
+  );
 
   const correspondeAoUsuario = (nomeNaEscala: string | null) => {
     const nomeEscala = normalizarNome(nomeNaEscala);
 
     if (!nomeEscala) return false;
-
-    // Compara o nome completo quando ele está disponível.
     if (nomeEscala === nomeCompleto) return true;
 
-    // Também aceita primeiro nome quando a escala ou o login só o contém.
     const escalaTemUmNome = nomeEscala.split(" ").length === 1;
     const usuarioTemUmNome = nomeCompleto.split(" ").length === 1;
 
@@ -283,38 +412,35 @@ export default function InicioPage() {
     );
   };
 
-  const minhasEscalas: Plantao[] = escalaPublicada
-    .filter((dia) => dia.data >= isoHoje)
-    .flatMap((dia) =>
-      (dia.itens ?? []).flatMap((item) => {
-        const plantoes: Plantao[] = [];
-
-        if (correspondeAoUsuario(item.manha)) {
-          plantoes.push({
-            data: dia.data,
-            funcao: item.funcao,
-            nome: nomeCompleto,
-            periodo: "manha",
-          });
-        }
-
-        if (correspondeAoUsuario(item.tarde)) {
-          plantoes.push({
-            data: dia.data,
-            funcao: item.funcao,
-            nome: nomeCompleto,
-            periodo: "tarde",
-          });
-        }
-
-        return plantoes;
-      })
-    )
-    .sort(
-      (a, b) =>
-        a.data.localeCompare(b.data) ||
-        (a.periodo === "manha" ? -1 : 1)
-    );
+const minhasProximasEscalas = proximasEscalasPublicadas.flatMap((dia) =>
+  (dia.itens ?? [])
+    .flatMap((item) => [
+      ...(item.manha
+        ? [
+            {
+              funcao: item.funcao,
+              pessoa: item.manha,
+              periodo: "manha" as const,
+            },
+          ]
+        : []),
+      ...(item.tarde
+        ? [
+            {
+              funcao: item.funcao,
+              pessoa: item.tarde,
+              periodo: "tarde" as const,
+            },
+          ]
+        : []),
+    ])
+    .filter((atribuicao) => correspondeAoUsuario(atribuicao.pessoa))
+    .map((atribuicao) => ({
+      data: dia.data,
+      periodo: atribuicao.periodo,
+      funcao: rotuloFuncao(atribuicao.funcao),
+    }))
+);
 
   const escalaOrdenada = [...escalaPublicada].sort((a, b) =>
     a.data.localeCompare(b.data)
@@ -330,16 +456,16 @@ export default function InicioPage() {
 
   const atribuicoesDoPeriodo = (
     dia: DiaEscala,
-    periodo: "manha" | "tarde"
+    periodoDoDia: "manha" | "tarde"
   ) =>
     (dia.itens ?? [])
       .map((item) => ({
         funcao: rotuloFuncao(item.funcao),
-        pessoa: periodo === "manha" ? item.manha : item.tarde,
+        pessoa: periodoDoDia === "manha" ? item.manha : item.tarde,
       }))
       .filter(
-        (a): a is { funcao: string; pessoa: string } =>
-          Boolean(a.pessoa && a.pessoa.trim() !== "")
+        (atribuicao): atribuicao is { funcao: string; pessoa: string } =>
+          Boolean(atribuicao.pessoa && atribuicao.pessoa.trim() !== "")
       );
 
   return (
@@ -388,8 +514,18 @@ export default function InicioPage() {
 
           <button
             type="button"
+            className={`inicio-botao-menu ${
+              mostrarAvisos ? "inicio-botao-menu-ativo" : ""
+            }`}
+            onClick={alternarAvisos}
+          >
+            Avisos
+          </button>
+
+          <button
+            type="button"
+            className="inicio-botao-menu"
             onClick={sair}
-            className="inicio-botao-sair"
           >
             Sair
           </button>
@@ -408,7 +544,6 @@ export default function InicioPage() {
             {escalaOrdenada.length === 0 ? (
               <>
                 <h3 className="inicio-cartao-titulo">Escala publicada</h3>
-
                 <p className="inicio-texto-suave">
                   Nenhuma escala publicada ainda.
                 </p>
@@ -436,7 +571,6 @@ export default function InicioPage() {
 
                         <span>
                           {dataExtenso(dia.data)}
-
                           <small className="escala-publica-dia-semana">
                             {nomeDiaSemana(dia.data)}
                           </small>
@@ -452,12 +586,13 @@ export default function InicioPage() {
                           {manha.length === 0 ? (
                             <p className="escala-publica-item">—</p>
                           ) : (
-                            manha.map((a) => (
+                            manha.map((atribuicao) => (
                               <p
                                 className="escala-publica-item"
-                                key={`manha-${dia.data}-${a.funcao}`}
+                                key={`manha-${dia.data}-${atribuicao.funcao}`}
                               >
-                                <strong>{a.funcao}:</strong> {a.pessoa}
+                                <strong>{atribuicao.funcao}:</strong>{" "}
+                                {atribuicao.pessoa}
                               </p>
                             ))
                           )}
@@ -471,12 +606,32 @@ export default function InicioPage() {
                           {noite.length === 0 ? (
                             <p className="escala-publica-item">—</p>
                           ) : (
-                            noite.map((a) => (
+                            noite.map((atribuicao) => (
                               <p
                                 className="escala-publica-item"
-                                key={`noite-${dia.data}-${a.funcao}`}
+                                key={`noite-${dia.data}-${atribuicao.funcao}`}
                               >
-                                <strong>{a.funcao}:</strong> {a.pessoa}
+                                <strong>
+                                  {funcoesComEnsaio.includes(
+                                    atribuicao.funcao
+                                  ) ? (
+                                    <button
+                                      type="button"
+                                      className="botao-funcao-ensaio"
+                                      onClick={() =>
+                                        setNotificacao(
+                                          "Ir para o ensaio no sábado às 09:00."
+                                        )
+                                      }
+                                    >
+                                      {atribuicao.funcao}
+                                    </button>
+                                  ) : (
+                                    atribuicao.funcao
+                                  )}
+                                  :
+                                </strong>{" "}
+                                {atribuicao.pessoa}
                               </p>
                             ))
                           )}
@@ -492,16 +647,16 @@ export default function InicioPage() {
 
         {mostrarRestricoes && (
           <section className="inicio-cartao inicio-cartao-restricoes">
-            <h3 className="inicio-cartao-titulo">
-              Restrições registradas
-            </h3>
+            <h3 className="inicio-cartao-titulo">Restrições registradas</h3>
 
-            {restricoesOrdenadas.length === 0 ? (
+            {erroRestricoes ? (
+              <p className="inicio-texto-suave">{erroRestricoes}</p>
+            ) : restricoesOrdenadas.length === 0 ? (
               <p className="inicio-texto-suave">
                 Nenhuma restrição registrada ainda.
               </p>
             ) : (
-              <table className="admin-tabela">
+              <table className="admin-tabela tabela-restricoes">
                 <thead>
                   <tr>
                     <th>Nome</th>
@@ -513,20 +668,18 @@ export default function InicioPage() {
                 </thead>
 
                 <tbody>
-                  {restricoesOrdenadas.map((restricao, indice) => {
-                    const minha = ehMinhaRestricao(restricao);
-                    const emEdicao = restricaoEditando === restricao;
+                  {restricoesOrdenadas.map((restricao) => {
+                    const emEdicao =
+                      restricaoEditando?.id === restricao.id;
 
                     return (
-                      <tr
-                        key={`${restricao.nome}-${restricao.data}-${indice}`}
-                      >
+                      <tr key={restricao.id}>
                         <td>
                           {restricao.nome} {restricao.sobrenome}
                         </td>
 
                         <td>
-                          {minha && emEdicao ? (
+                          {emEdicao ? (
                             <input
                               type="date"
                               className="login-campo"
@@ -539,7 +692,7 @@ export default function InicioPage() {
                         </td>
 
                         <td>
-                          {minha && emEdicao ? (
+                          {emEdicao ? (
                             <select
                               className="login-campo"
                               value={periodoEdicao}
@@ -549,11 +702,9 @@ export default function InicioPage() {
                                 )
                               }
                             >
+                              <option value="">Dia inteiro</option>
                               <option value="manha">Manhã</option>
                               <option value="tarde">Tarde</option>
-                              {!restricao.periodo && (
-                                <option value="">Dia inteiro</option>
-                              )}
                             </select>
                           ) : (
                             nomePeriodoRestricao(restricao)
@@ -561,12 +712,14 @@ export default function InicioPage() {
                         </td>
 
                         <td>
-                          {minha && emEdicao ? (
+                          {emEdicao ? (
                             <input
                               type="text"
                               className="login-campo"
                               value={motivoEdicao}
-                              onChange={(e) => setMotivoEdicao(e.target.value)}
+                              onChange={(e) =>
+                                setMotivoEdicao(e.target.value)
+                              }
                             />
                           ) : (
                             restricao.motivo || "-"
@@ -574,46 +727,44 @@ export default function InicioPage() {
                         </td>
 
                         <td>
-                          {minha ? (
-                            emEdicao ? (
-                              <div className="admin-acoes">
-                                <button
-                                  type="button"
-                                  className="admin-botao-editar"
-                                  onClick={salvarEdicao}
-                                >
-                                  Salvar
-                                </button>
+                          {emEdicao ? (
+                            <div className="admin-acoes">
+                              <button
+                                type="button"
+                                className="admin-botao-editar"
+                                onClick={() => void salvarEdicao()}
+                              >
+                                Salvar
+                              </button>
 
-                                <button
-                                  type="button"
-                                  className="admin-botao-apagar"
-                                  onClick={cancelarEdicao}
-                                >
-                                  Cancelar
-                                </button>
-                              </div>
-                            ) : (
-                              <div className="admin-acoes">
-                                <button
-                                  type="button"
-                                  className="admin-botao-editar"
-                                  onClick={() => iniciarEdicao(restricao)}
-                                >
-                                  Editar
-                                </button>
-
-                                <button
-                                  type="button"
-                                  className="admin-botao-apagar"
-                                  onClick={() => apagarRestricao(restricao)}
-                                >
-                                  Apagar
-                                </button>
-                              </div>
-                            )
+                              <button
+                                type="button"
+                                className="admin-botao-apagar"
+                                onClick={cancelarEdicao}
+                              >
+                                Cancelar
+                              </button>
+                            </div>
                           ) : (
-                            "—"
+                            <div className="admin-acoes">
+                              <button
+                                type="button"
+                                className="admin-botao-editar"
+                                onClick={() => iniciarEdicao(restricao)}
+                              >
+                                Editar
+                              </button>
+
+                              <button
+                                type="button"
+                                className="admin-botao-apagar"
+                                onClick={() =>
+                                  setRestricaoParaApagar(restricao)
+                                }
+                              >
+                                Apagar
+                              </button>
+                            </div>
                           )}
                         </td>
                       </tr>
@@ -621,6 +772,53 @@ export default function InicioPage() {
                   })}
                 </tbody>
               </table>
+            )}
+          </section>
+        )}
+
+        {mostrarAvisos && (
+          <section className="inicio-cartao">
+            <h3 className="inicio-cartao-titulo">Avisos</h3>
+
+            {avisosPublicados.length === 0 ? (
+              <p className="inicio-texto-suave">
+                Nenhum aviso publicado ainda.
+              </p>
+            ) : (
+              avisosPublicados.map((avisoPublicado) => (
+                <div
+                  key={avisoPublicado.id}
+                  style={{
+                    border: "1px solid rgba(128, 128, 128, .35)",
+                    borderRadius: 12,
+                    padding: 12,
+                    margin: "10px 0",
+                  }}
+                >
+                  <img
+                    src={avisoPublicado.imagem_url}
+                    alt="Aviso"
+                    style={{
+                      width: "100%",
+                      borderRadius: 8,
+                      display: "block",
+                    }}
+                  />
+
+                  {avisoPublicado.observacao && (
+                    <p style={{ margin: "8px 0 2px" }}>
+                      {avisoPublicado.observacao}
+                    </p>
+                  )}
+
+                  <p
+                    className="inicio-texto-suave"
+                    style={{ margin: 0, fontSize: 13 }}
+                  >
+                    {formatarDataHora(avisoPublicado.criado_em)}
+                  </p>
+                </div>
+              ))
             )}
           </section>
         )}
@@ -641,25 +839,25 @@ export default function InicioPage() {
           </section>
 
           <section className="inicio-cartao">
-            <h3 className="inicio-cartao-titulo">Próxima escala</h3>
+  <h3 className="inicio-cartao-titulo">Minhas Escalas</h3>
 
-            {minhasEscalas.length === 0 ? (
-              <p className="inicio-texto-suave">
-                Você não está escalado nas próximas datas publicadas.
-              </p>
-            ) : (
-              minhasEscalas.map((plantao, indice) => (
-                <p
-                  key={`${plantao.data}-${plantao.funcao}-${plantao.periodo}-${indice}`}
-                  style={{ margin: "4px 0" }}
-                >
-                  {formatarDiaMes(plantao.data)} —{" "}
-                  {rotuloFuncao(plantao.funcao)} — {plantao.nome} —{" "}
-                  {rotuloPeriodo(plantao.periodo)}
-                </p>
-              ))
-            )}
-          </section>
+  {minhasProximasEscalas.length === 0 ? (
+    <p className="inicio-texto-suave">
+      Você não está escalado nas próximas datas.
+    </p>
+  ) : (
+    minhasProximasEscalas.map((item, indice) => (
+      <p
+        key={`${item.data}-${item.funcao}-${item.periodo}-${indice}`}
+        style={{ margin: "5px 0" }}
+      >
+        {formatarDiaMes(item.data)}/
+        {item.periodo === "manha" ? "manhã" : "noite"} - {item.funcao} -{" "}
+        {usuario.nome}
+      </p>
+    ))
+  )}
+</section>
 
           <section className="inicio-cartao">
             <h3 className="inicio-cartao-titulo">
@@ -669,11 +867,8 @@ export default function InicioPage() {
             {minhasRestricoes.length === 0 ? (
               <p className="inicio-texto-suave">Nenhuma data informada.</p>
             ) : (
-              minhasRestricoes.map((restricao, indice) => (
-                <p
-                  key={`${restricao.data}-${indice}`}
-                  style={{ margin: "4px 0" }}
-                >
+              minhasRestricoes.map((restricao) => (
+                <p key={restricao.id} style={{ margin: "4px 0" }}>
                   {formatarData(restricao.data)} —{" "}
                   {nomePeriodoRestricao(restricao)}
                 </p>
@@ -703,14 +898,14 @@ export default function InicioPage() {
           >
             <h2 className="admin-modal-titulo">Nova restrição</h2>
 
-            <form
-              onSubmit={adicionarRestricao}
-              className="login-formulario"
-            >
+            <form onSubmit={adicionarRestricao} className="login-formulario">
               <div>
-                <label className="login-rotulo">Data</label>
+                <label className="login-rotulo" htmlFor="restricao-data">
+                  Data
+                </label>
 
                 <input
+                  id="restricao-data"
                   type="date"
                   required
                   value={data}
@@ -720,9 +915,34 @@ export default function InicioPage() {
               </div>
 
               <div>
-                <label className="login-rotulo">Motivo</label>
+                <label
+                  className="login-rotulo"
+                  htmlFor="restricao-periodo"
+                >
+                  Período
+                </label>
+
+                <select
+                  id="restricao-periodo"
+                  value={periodo}
+                  onChange={(e) =>
+                    setPeriodo(e.target.value as "manha" | "tarde" | "")
+                  }
+                  className="login-campo"
+                >
+                  <option value="">Dia inteiro</option>
+                  <option value="manha">Manhã</option>
+                  <option value="tarde">Tarde</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="login-rotulo" htmlFor="restricao-motivo">
+                  Motivo
+                </label>
 
                 <input
+                  id="restricao-motivo"
                   type="text"
                   value={motivo}
                   onChange={(e) => setMotivo(e.target.value)}
@@ -749,6 +969,89 @@ export default function InicioPage() {
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {restricaoParaApagar && (
+        <div
+          className="admin-modal-fundo"
+          onClick={() => setRestricaoParaApagar(null)}
+        >
+          <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
+            <h2 className="admin-modal-titulo">Apagar restrição</h2>
+
+            <p style={{ margin: "0 0 16px" }}>
+              Tem certeza de que deseja apagar a restrição de{" "}
+              {restricaoParaApagar.nome} {restricaoParaApagar.sobrenome} em{" "}
+              {formatarData(restricaoParaApagar.data)}?
+            </p>
+
+            <div className="admin-modal-acoes">
+              <button
+                type="button"
+                className="admin-modal-cancelar"
+                onClick={() => setRestricaoParaApagar(null)}
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                className="admin-botao-apagar"
+                onClick={() => void apagarRestricao()}
+              >
+                Apagar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {notificacao && (
+        <div
+          role="status"
+          style={{
+            position: "fixed",
+            bottom: 24,
+            left: "50%",
+            transform: "translateX(-50%)",
+            background: "#7f1d1d",
+            color: "#fff",
+            padding: "12px 20px",
+            borderRadius: 10,
+            boxShadow: "0 6px 20px rgba(0,0,0,.3)",
+            zIndex: 1000,
+            fontWeight: 600,
+            maxWidth: "90vw",
+            textAlign: "center",
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+          }}
+        >
+          <span>{notificacao}</span>
+
+          <button
+            type="button"
+            onClick={() => setNotificacao("")}
+            aria-label="Fechar notificação"
+            style={{
+              background: "none",
+              border: "none",
+              color: "#fff",
+              fontSize: 18,
+              cursor: "pointer",
+              lineHeight: 1,
+            }}
+          >
+            ×
+          </button>
+        </div>
+      )}
+
+      {aviso && (
+        <div className="aviso-flutuante" role="status">
+          {aviso}
         </div>
       )}
     </div>

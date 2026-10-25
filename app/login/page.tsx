@@ -1,15 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 
 type Usuario = {
-  id: string;
   nome: string;
   sobrenome: string;
   atribuicoes: string[];
-  senha: string | null;
 };
 
 const funcoesPadrao = [
@@ -20,330 +18,287 @@ const funcoesPadrao = [
   "Áudio (Som)",
 ];
 
+const normalizarNome = (valor: string) =>
+  (valor ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLocaleLowerCase("pt-BR");
+
 export default function LoginPage() {
   const router = useRouter();
 
   const [modo, setModo] = useState<"entrar" | "registrar">("entrar");
-  const [carregando, setCarregando] = useState(false);
-  const [erro, setErro] = useState("");
-  const [mensagem, setMensagem] = useState("");
-
-  // Entrar
   const [nome, setNome] = useState("");
+  const [sobrenome, setSobrenome] = useState("");
   const [senha, setSenha] = useState("");
+  const [atribuicoes, setAtribuicoes] = useState<string[]>([]);
+  const [funcoes, setFuncoes] = useState<string[]>(funcoesPadrao);
+  const [erro, setErro] = useState("");
+  const [carregando, setCarregando] = useState(false);
 
-  // Registrar
-  const [nomeRegistro, setNomeRegistro] = useState("");
-  const [senhaRegistro, setSenhaRegistro] = useState("");
-  const [atribuicoesSelecionadas, setAtribuicoesSelecionadas] = useState<
-    string[]
-  >([]);
+  // Inclui também as funções extras cadastradas pelo admin, se existirem
+  useEffect(() => {
+    try {
+      const salvas = JSON.parse(
+        localStorage.getItem("funcoes") || "[]"
+      ) as string[];
+
+      if (Array.isArray(salvas) && salvas.length > 0) {
+        setFuncoes(Array.from(new Set([...funcoesPadrao, ...salvas])));
+      }
+    } catch {
+      // valor corrompido: segue com as padrão
+    }
+  }, []);
 
   const alternarFuncao = (funcao: string) => {
-    setAtribuicoesSelecionadas((atual) =>
-      atual.includes(funcao)
-        ? atual.filter((f) => f !== funcao)
-        : [...atual, funcao]
+    setAtribuicoes((atuais) =>
+      atuais.includes(funcao)
+        ? atuais.filter((f) => f !== funcao)
+        : [...atuais, funcao]
     );
   };
 
-  const entrar = async (e: React.FormEvent) => {
+  const trocarModo = () => {
+    setModo(modo === "entrar" ? "registrar" : "entrar");
+    setErro("");
+    setNome("");
+    setSobrenome("");
+    setSenha("");
+    setAtribuicoes([]);
+  };
+
+  const entrar = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setErro("");
-    setMensagem("");
     setCarregando(true);
-
-    const nomeLimpo = nome.trim().toLowerCase();
 
     const { data, error } = await supabase
       .from("usuarios")
-      .select("*")
-      .ilike("nome", nomeLimpo);
+      .select("nome, sobrenome, atribuicoes, senha");
 
-    if (error || !data || data.length === 0) {
-      setCarregando(false);
-      setErro("Nome não encontrado. Fale com o líder para se cadastrar.");
+    setCarregando(false);
+
+    if (error) {
+      console.error("Erro no login:", error);
+      setErro(`Falha ao consultar o banco: ${error.message}`);
       return;
     }
 
-    const usuario = data[0] as Usuario;
+    const encontrado = (data ?? []).find(
+      (u) =>
+        normalizarNome(u.nome) === normalizarNome(nome) &&
+        (u.senha ?? "") === senha
+    );
 
-    if (usuario.senha && usuario.senha !== senha) {
-      setCarregando(false);
-      setErro("Senha incorreta.");
+    if (!encontrado) {
+      setErro("Nome ou senha incorretos.");
       return;
-    }
-
-    // Primeiro acesso: a senha digitada fica registrada no banco
-    if (!usuario.senha) {
-      const { error: erroSenha } = await supabase
-        .from("usuarios")
-        .update({ senha })
-        .eq("id", usuario.id);
-
-      if (erroSenha) {
-        setCarregando(false);
-        setErro("Não foi possível registrar a senha. Tente de novo.");
-        return;
-      }
     }
 
     localStorage.setItem(
       "usuario",
       JSON.stringify({
-        nome: usuario.nome,
-        sobrenome: usuario.sobrenome,
-        atribuicoes: usuario.atribuicoes ?? [],
+        nome: encontrado.nome,
+        sobrenome: encontrado.sobrenome ?? "",
+        atribuicoes: encontrado.atribuicoes ?? [],
       })
     );
 
     router.push("/inicio");
   };
 
-  const registrar = async (e: React.FormEvent) => {
+  const registrar = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setErro("");
-    setMensagem("");
 
-    if (atribuicoesSelecionadas.length === 0) {
-      setErro("Selecione pelo menos uma função.");
+    if (!nome.trim() || !senha) {
+      setErro("Preencha nome e senha.");
       return;
     }
 
     setCarregando(true);
 
     const { error } = await supabase.from("solicitacoes").insert({
-      nome: nomeRegistro.trim(),
-      sobrenome: "",
-      senha: senhaRegistro,
-      atribuicoes: atribuicoesSelecionadas,
+      nome: nome.trim(),
+      sobrenome: sobrenome.trim(),
+      atribuicoes,
+      senha,
     });
 
     setCarregando(false);
 
     if (error) {
-      console.error("Erro ao enviar solicitação ao Supabase:", error);
-      setErro(`Falha ao salvar no Supabase: ${error.message}`);
+      console.error("Erro ao registrar:", error);
+      setErro(`Falha ao enviar o cadastro: ${error.message}`);
       return;
     }
 
-    setMensagem("Solicitação enviada! Aguarde a aprovação do líder.");
-    setNomeRegistro("");
-    setSenhaRegistro("");
-    setAtribuicoesSelecionadas([]);
+    alert("Cadastro enviado! Aguarde a aprovação do líder.");
+    trocarModo();
   };
 
   return (
     <div className="login-pagina">
       <div className="login-cartao">
+        <h1 className="login-titulo">
+          {modo === "entrar" ? "Entrar" : "Registrar"}
+        </h1>
+
+        <p className="login-subtitulo">
+          {modo === "entrar"
+            ? "Já tem cadastro? Informe seu nome e senha para acessar."
+            : "Envie seu cadastro e aguarde a aprovação do líder."}
+        </p>
+
         {modo === "entrar" ? (
-          <>
-            <h1 className="login-titulo">Entrar</h1>
+          <form onSubmit={entrar} className="login-formulario">
+            <div>
+              <label className="login-rotulo" htmlFor="login-nome">
+                Nome
+              </label>
 
-            <p className="login-subtitulo">
-              Já tem cadastro? Informe seu nome e senha para acessar.
-            </p>
+              <input
+                id="login-nome"
+                type="text"
+                required
+                autoComplete="username"
+                value={nome}
+                onChange={(e) => setNome(e.target.value)}
+                placeholder="Digite seu nome"
+                className="login-campo"
+              />
+            </div>
 
-            <form onSubmit={entrar} className="login-formulario">
-              <div>
-                <label className="login-rotulo" htmlFor="nome">
-                  Nome
-                </label>
+            <div>
+              <label className="login-rotulo" htmlFor="login-senha">
+                Senha
+              </label>
 
-                <input
-                  id="nome"
-                  type="text"
-                  required
-                  placeholder="Digite seu nome"
-                  value={nome}
-                  onChange={(e) => {
-                    setNome(e.target.value);
-                    setErro("");
-                  }}
-                  className="login-campo"
-                />
-              </div>
+              <input
+                id="login-senha"
+                type="password"
+                required
+                autoComplete="current-password"
+                value={senha}
+                onChange={(e) => setSenha(e.target.value)}
+                placeholder="Digite sua senha"
+                className="login-campo"
+              />
+            </div>
 
-              <div>
-                <label className="login-rotulo" htmlFor="senha">
-                  Senha
-                </label>
+            {erro && (
+              <p className="login-erro" role="alert">
+                {erro}
+              </p>
+            )}
 
-                <input
-                  id="senha"
-                  type="password"
-                  required
-                  placeholder="Digite sua senha"
-                  value={senha}
-                  onChange={(e) => {
-                    setSenha(e.target.value);
-                    setErro("");
-                  }}
-                  className="login-campo"
-                />
-              </div>
+            <button
+              type="submit"
+              className="login-botao"
+              disabled={carregando}
+            >
+              {carregando ? "Entrando..." : "Entrar"}
+            </button>
 
-              {erro && (
-                <p
-                  style={{
-                    margin: 0,
-                    fontSize: 14,
-                    color: "#a83232",
-                    textAlign: "center",
-                  }}
-                >
-                  {erro}
-                </p>
-              )}
-
-              <button
-                type="submit"
-                className="login-botao"
-                disabled={carregando}
-              >
-                {carregando ? "Entrando..." : "Entrar"}
-              </button>
-
-              <button
-                type="button"
-                className="login-botao-topo"
-                onClick={() => {
-                  setModo("registrar");
-                  setErro("");
-                  setMensagem("");
-                }}
-              >
-                Registrar
-              </button>
-            </form>
-          </>
+            <button
+              type="button"
+              className="login-botao-secundario"
+              onClick={trocarModo}
+            >
+              Registrar
+            </button>
+          </form>
         ) : (
-          <>
-            <h1 className="login-titulo">Registrar</h1>
+          <form onSubmit={registrar} className="login-formulario">
+            <div>
+              <label className="login-rotulo" htmlFor="registro-nome">
+                Nome
+              </label>
 
-            <p className="login-subtitulo">
-              Escolha seu nome e sua senha. A solicitação vai para o líder
-              aprovar.
-            </p>
+              <input
+                id="registro-nome"
+                type="text"
+                required
+                value={nome}
+                onChange={(e) => setNome(e.target.value)}
+                placeholder="Digite seu nome"
+                className="login-campo"
+              />
+            </div>
 
-            <form onSubmit={registrar} className="login-formulario">
-              <div>
-                <label className="login-rotulo" htmlFor="nome-registro">
-                  Nome
-                </label>
+            <div>
+              <label className="login-rotulo" htmlFor="registro-sobrenome">
+                Sobrenome
+              </label>
 
-                <input
-                  id="nome-registro"
-                  type="text"
-                  required
-                  placeholder="Digite seu nome"
-                  value={nomeRegistro}
-                  onChange={(e) => {
-                    setNomeRegistro(e.target.value);
-                    setErro("");
-                  }}
-                  className="login-campo"
-                />
+              <input
+                id="registro-sobrenome"
+                type="text"
+                value={sobrenome}
+                onChange={(e) => setSobrenome(e.target.value)}
+                placeholder="Digite seu sobrenome"
+                className="login-campo"
+              />
+            </div>
+
+            <div>
+              <label className="login-rotulo" htmlFor="registro-senha">
+                Senha
+              </label>
+
+              <input
+                id="registro-senha"
+                type="password"
+                required
+                value={senha}
+                onChange={(e) => setSenha(e.target.value)}
+                placeholder="Crie uma senha"
+                className="login-campo"
+              />
+            </div>
+
+            <div>
+              <label className="login-rotulo">Funções:</label>
+
+              <div className="login-lista-funcoes">
+                {funcoes.map((funcao) => (
+                  <label key={funcao} className="login-opcao">
+                    <input
+                      type="checkbox"
+                      className="login-checkbox"
+                      checked={atribuicoes.includes(funcao)}
+                      onChange={() => alternarFuncao(funcao)}
+                    />
+
+                    {funcao}
+                  </label>
+                ))}
               </div>
+            </div>
 
-              <div>
-                <label className="login-rotulo" htmlFor="senha-registro">
-                  Senha
-                </label>
+            {erro && (
+              <p className="login-erro" role="alert">
+                {erro}
+              </p>
+            )}
 
-                <input
-                  id="senha-registro"
-                  type="password"
-                  required
-                  placeholder="Crie sua senha"
-                  value={senhaRegistro}
-                  onChange={(e) => {
-                    setSenhaRegistro(e.target.value);
-                    setErro("");
-                  }}
-                  className="login-campo"
-                />
-              </div>
+            <button
+              type="submit"
+              className="login-botao"
+              disabled={carregando}
+            >
+              {carregando ? "Enviando..." : "Enviar cadastro"}
+            </button>
 
-              <div>
-                <label className="login-rotulo">Funções</label>
-
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 8,
-                    marginTop: 8,
-                  }}
-                >
-                  {funcoesPadrao.map((funcao) => (
-                    <label
-                      key={funcao}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                        fontSize: 14,
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={atribuicoesSelecionadas.includes(funcao)}
-                        onChange={() => alternarFuncao(funcao)}
-                      />
-                      {funcao}
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              {erro && (
-                <p
-                  style={{
-                    margin: 0,
-                    fontSize: 14,
-                    color: "#a83232",
-                    textAlign: "center",
-                  }}
-                >
-                  {erro}
-                </p>
-              )}
-
-              {mensagem && (
-                <p
-                  style={{
-                    margin: 0,
-                    fontSize: 14,
-                    color: "#2e7d32",
-                    textAlign: "center",
-                  }}
-                >
-                  {mensagem}
-                </p>
-              )}
-
-              <button
-                type="submit"
-                className="login-botao"
-                disabled={carregando}
-              >
-                {carregando ? "Enviando..." : "Enviar solicitação"}
-              </button>
-
-              <button
-                type="button"
-                className="login-botao-topo"
-                onClick={() => {
-                  setModo("entrar");
-                  setErro("");
-                  setMensagem("");
-                }}
-              >
-                Voltar para entrar
-              </button>
-            </form>
-          </>
+            <button
+              type="button"
+              className="login-botao-secundario"
+              onClick={trocarModo}
+            >
+              Voltar para o login
+            </button>
+          </form>
         )}
       </div>
     </div>

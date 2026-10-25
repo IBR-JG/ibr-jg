@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-/* ========== VARIÁVEIS GLOBAIS (mude aqui e muda no site todo) ========== */
+/* ========== VARIÁVEIS GLOBAIS ========== */
 :root {
   --background: #ffffff;
   --foreground: #171717;
@@ -24,7 +24,14 @@
   --font-mono: var(--font-geist-mono);
 }
 
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 body {
+  margin: 0;
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
@@ -109,7 +116,6 @@ body {
   border-radius: var(--raio);
   border: 1px solid var(--cor-borda);
   font-size: 14px;
-  box-sizing: border-box;
 }
 
 .login-campo:focus {
@@ -177,6 +183,7 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 16px;
 }
 
 .inicio-logo {
@@ -211,6 +218,7 @@ body {
 }
 
 .inicio-conteudo {
+  width: 100%;
   max-width: 900px;
   margin: 0 auto;
   padding: 24px;
@@ -234,6 +242,7 @@ body {
 }
 
 .inicio-cartao {
+  min-width: 0;
   background-color: var(--cor-cartao);
   padding: 20px;
   border-radius: var(--raio-cartao);
@@ -265,6 +274,7 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 16px;
 }
 
 .admin-menu {
@@ -273,7 +283,7 @@ body {
   gap: 8px;
 }
 
-/* Botões do cabeçalho: fundo vinho (normal) / fundo branco (apertado) */
+/* Botões do cabeçalho */
 .admin-botao-menu,
 .admin-botao-voltar {
   background: var(--cor-principal);
@@ -294,6 +304,7 @@ body {
 }
 
 .admin-conteudo {
+  width: 100%;
   max-width: 900px;
   margin: 0 auto;
   padding: 24px;
@@ -317,6 +328,7 @@ body {
 }
 
 .admin-cartao {
+  min-width: 0;
   background-color: var(--cor-cartao);
   padding: 20px;
   border-radius: var(--raio-cartao);
@@ -409,6 +421,10 @@ body {
   bottom: 24px;
 }
 
+.admin-botao-flutuante-lado {
+  right: 96px;
+}
+
 /* Modal */
 .admin-modal-fundo {
   position: fixed;
@@ -460,6 +476,7 @@ body {
   margin-top: 0;
 }
 
+/* Menu da página inicial */
 .inicio-menu {
   display: flex;
   align-items: center;
@@ -484,6 +501,7 @@ body {
   margin-bottom: 16px;
 }
 
+/* Escala no admin */
 .admin-escala-dia {
   margin-bottom: 20px;
 }
@@ -496,12 +514,7 @@ body {
   margin-bottom: 8px;
 }
 
-/* Quando há mais de um botão flutuante aberto, este fica ao lado */
-.admin-botao-flutuante-lado {
-  right: 96px;
-}
-
-/* ========== ESCALA PUBLICADA (PÁGINA INÍCIO — ESTILO IMAGEM) ========== */
+/* ========== ESCALA PUBLICADA ========== */
 .escala-publica {
   background:
     radial-gradient(120% 80% at 50% 0%, rgba(255, 255, 255, 0.06), transparent 55%),
@@ -624,21 +637,174 @@ body {
   margin: 3px 0;
   font-size: 14px;
   color: rgba(255, 255, 255, 0.92);
-  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
 }
 
 .escala-publica-item strong {
   color: #ffffff;
 }
 
+/* Botões OBS / HOLYRICS / SOM */
+.botao-funcao-ensaio {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 8px;
+  padding: 3px 8px;
+  font: inherit;
+  font-weight: 700;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  vertical-align: middle;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.botao-funcao-ensaio::before {
+  content: "⚠️";
+  display: inline-block;
+  font-size: 0.9em;
+}
+
+/* ========== AJUSTES PARA CELULAR ========== */
 @media (max-width: 640px) {
+  .login-pagina {
+    padding: 16px;
+  }
+
+  .login-topo {
+    padding: 12px 16px;
+  }
+
+  .login-cartao {
+    padding: 24px 18px;
+  }
+
+  .inicio-cabecalho,
+  .admin-cabecalho {
+    flex-wrap: wrap;
+    padding: 12px 16px;
+  }
+
+  .inicio-cabecalho {
+    align-items: center;
+  }
+
+  .inicio-menu,
+  .admin-menu {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .inicio-botao-menu,
+  .admin-botao-menu,
+  .admin-botao-voltar {
+    padding: 8px 10px;
+    font-size: 13px;
+  }
+
+  .inicio-conteudo,
+  .admin-conteudo {
+    padding: 18px 12px;
+  }
+
+  .inicio-titulo,
+  .admin-titulo {
+    font-size: 23px;
+  }
+
+  .inicio-subtitulo,
+  .admin-subtitulo {
+    margin-bottom: 18px;
+  }
+
+  .inicio-grade {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .inicio-cartao,
+  .admin-cartao {
+    padding: 16px;
+  }
+
+  /* Tabela com rolagem horizontal no celular */
+  .admin-tabela {
+    display: block;
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .admin-tabela th,
+  .admin-tabela td {
+    padding: 9px 8px;
+    white-space: nowrap;
+  }
+
+  .admin-acoes {
+    flex-wrap: wrap;
+  }
+
+  .admin-modal-fundo {
+    padding: 12px;
+  }
+
+  .admin-modal {
+    width: 100%;
+    max-width: 460px;
+    max-height: 88vh;
+    padding: 22px 18px;
+  }
+
+  .admin-modal-acoes {
+    flex-wrap: wrap;
+  }
+
+  .admin-botao-flutuante {
+    right: 16px;
+    bottom: 16px;
+    width: 52px;
+    height: 52px;
+  }
+
+  .admin-botao-flutuante-lado {
+    right: 78px;
+  }
+
+  .admin-botao-flutuante-funcao {
+    bottom: 78px;
+  }
+
   .escala-publica {
-    padding: 24px 16px 8px;
+    padding: 22px 16px 10px;
+  }
+
+  .escala-publica-titulo {
+    font-size: 17px;
+    letter-spacing: 3px;
+  }
+
+  .escala-publica-subtitulo {
+    gap: 8px;
+    font-size: 11px;
+    letter-spacing: 2px;
+  }
+
+  .escala-publica-subtitulo::before,
+  .escala-publica-subtitulo::after {
+    width: 32px;
   }
 
   .escala-publica-dia {
     flex-direction: column;
     gap: 12px;
+    padding: 16px 0;
   }
 
   .escala-publica-data {
@@ -647,7 +813,8 @@ body {
 
   .escala-publica-turnos {
     flex-direction: column;
-    gap: 14px;
+    gap: 12px;
+    width: 100%;
   }
 
   .escala-publica-turno {
@@ -659,22 +826,105 @@ body {
     border-top: 1px dashed rgba(217, 185, 138, 0.6);
     padding-top: 12px;
   }
-}
 
-@media (max-width: 640px) {
-  .escala-publica-dia {
-    flex-direction: column;
-    gap: 8px;
+  .escala-publica-item {
+    line-height: 1.6;
   }
 
-  .escala-publica-turnos {
-    flex-direction: column;
+  /* Mantém os botões com o mesmo visual do computador,
+     com uma área um pouco mais confortável para tocar. */
+  .botao-funcao-ensaio {
+    min-height: 34px;
+    padding: 5px 8px;
+    border-color: rgba(255, 255, 255, 0.3);
+  }
+}
+
+/* Restrições: organiza as informações em cartões no celular */
+@media (max-width: 640px) {
+  .inicio-conteudo,
+  .inicio-cartao {
+    box-sizing: border-box;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .inicio-conteudo {
+    padding: 16px 12px;
+  }
+
+  .tabela-restricoes {
+    display: block;
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+
+  .tabela-restricoes thead {
+    display: none;
+  }
+
+  .tabela-restricoes tbody {
+    display: grid;
     gap: 12px;
   }
 
-  .escala-publica-turno + .escala-publica-turno {
-    border-left: none;
-    border-top: 2px dashed var(--cor-borda);
-    padding-top: 12px;
+  .tabela-restricoes tr {
+    display: block;
+    min-width: 0;
+    padding: 8px 12px;
+    border: 1px solid var(--cor-borda);
+    border-radius: var(--raio);
+    background: var(--cor-cartao);
+  }
+
+  .tabela-restricoes td {
+    display: grid;
+    grid-template-columns: minmax(74px, 0.8fr) minmax(0, 1.2fr);
+    align-items: center;
+    gap: 8px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--cor-borda);
+    text-align: center;
+    overflow-wrap: anywhere;
+  }
+
+  .tabela-restricoes td::before {
+    color: var(--cor-principal);
+    font-weight: 700;
+    text-align: center;
+  }
+
+  .tabela-restricoes td:nth-child(1)::before {
+    content: "Nome";
+  }
+
+  .tabela-restricoes td:nth-child(2)::before {
+    content: "Data";
+  }
+
+  .tabela-restricoes td:nth-child(3)::before {
+    content: "Período";
+  }
+
+  .tabela-restricoes td:nth-child(4)::before {
+    content: "Motivo";
+  }
+
+  .tabela-restricoes td:last-child {
+    display: block;
+    border-bottom: none;
+    padding-bottom: 4px;
+  }
+
+  .tabela-restricoes td:last-child::before {
+    content: "Ações";
+    display: block;
+    margin-bottom: 8px;
+  }
+
+  .tabela-restricoes .admin-acoes {
+    justify-content: center;
+    flex-wrap: wrap;
   }
 }
