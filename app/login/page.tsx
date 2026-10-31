@@ -73,39 +73,44 @@ export default function LoginPage() {
     setErro("");
     setCarregando(true);
 
-    const { data, error } = await supabase
-      .from("usuarios")
-      .select("nome, sobrenome, atribuicoes, senha");
+    try {
+      const { data, error } = await supabase
+        .from("usuarios")
+        .select("nome, sobrenome, atribuicoes, senha");
 
-    setCarregando(false);
+      if (error) {
+        console.error("Erro no login:", error);
+        setErro(`Falha ao consultar o banco: ${error.message}`);
+        return;
+      }
 
-    if (error) {
-      console.error("Erro no login:", error);
-      setErro(`Falha ao consultar o banco: ${error.message}`);
-      return;
+      const encontrado = (data ?? []).find(
+        (u) =>
+          normalizarNome(u.nome) === normalizarNome(nome) &&
+          (u.senha ?? "") === senha
+      );
+
+      if (!encontrado) {
+        setErro("Nome ou senha incorretos.");
+        return;
+      }
+
+      localStorage.setItem(
+        "usuario",
+        JSON.stringify({
+          nome: encontrado.nome,
+          sobrenome: encontrado.sobrenome ?? "",
+          atribuicoes: encontrado.atribuicoes ?? [],
+        })
+      );
+
+      router.push("/inicio");
+    } catch (err) {
+      console.error("Erro inesperado no login:", err);
+      setErro("Erro inesperado ao tentar entrar.");
+    } finally {
+      setCarregando(false);
     }
-
-    const encontrado = (data ?? []).find(
-      (u) =>
-        normalizarNome(u.nome) === normalizarNome(nome) &&
-        (u.senha ?? "") === senha
-    );
-
-    if (!encontrado) {
-      setErro("Nome ou senha incorretos.");
-      return;
-    }
-
-    localStorage.setItem(
-      "usuario",
-      JSON.stringify({
-        nome: encontrado.nome,
-        sobrenome: encontrado.sobrenome ?? "",
-        atribuicoes: encontrado.atribuicoes ?? [],
-      })
-    );
-
-    router.push("/inicio");
   };
 
   const registrar = async (e: FormEvent<HTMLFormElement>) => {

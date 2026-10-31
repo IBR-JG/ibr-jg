@@ -1741,17 +1741,6 @@ const publicarAviso = async (e: FormEvent<HTMLFormElement>) => {
               </div>
 
               <div>
-                <label className="login-rotulo">Sobrenome</label>
-                <input
-                  type="text"
-                  value={sobrenome}
-                  onChange={(e) => setSobrenome(e.target.value)}
-                  placeholder="Digite o sobrenome"
-                  className="login-campo"
-                />
-              </div>
-
-              <div>
                 <label className="login-rotulo">
                   Atribuições / Funções:
                 </label>
