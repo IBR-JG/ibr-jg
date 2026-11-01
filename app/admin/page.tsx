@@ -25,6 +25,8 @@ type ItemEscala = {
   funcao: string;
   manha: string | null;
   tarde: string | null;
+  ocultoManha?: boolean;
+  ocultoTarde?: boolean;
 };
 
 type DiaEscala = {
@@ -76,13 +78,6 @@ const nomeDiaSemana = (iso: string) => {
   });
 };
 
-const nomePeriodo = (periodo?: "manha" | "tarde" | null) =>
-  periodo === "manha"
-    ? "Manhã"
-    : periodo === "tarde"
-      ? "Tarde"
-      : "Dia inteiro";
-
 const temRestricao = (
   membro: Usuario,
   data: string,
@@ -101,6 +96,20 @@ const FUNCOES_ENSAIO_SABADO = ["Áudio (Som)", "Projeção (Holyrics)"];
 
 // Funções que entram na escala gerada (apenas estas duas)
 const FUNCOES_ESCALA = ["Projeção (Holyrics)", "Áudio (Som)"];
+
+// Ordem de exibição da noite
+const ORDEM_NOITE = [
+  "Transmissão (OBS)",
+  "Projeção (Holyrics)",
+  "Áudio (Som)",
+  "Fotografia",
+  "Social Media / Stories",
+];
+
+const ordemNoite = (funcao: string) => {
+  const i = ORDEM_NOITE.indexOf(funcao);
+  return i === -1 ? ORDEM_NOITE.length : i;
+};
 
 // A escala é de domingo; o ensaio é no sábado imediatamente anterior.
 const sabadoAnterior = (iso: string) => {
@@ -127,6 +136,38 @@ const temRestricaoSabado = (
       r.data === sabado
   );
 };
+
+const diaMesParaISO = (texto: string) => {
+  const m = texto.match(/^(\d{2})\/(\d{2})$/);
+  if (!m) return null;
+
+  const dia = Number(m[1]);
+  const mes = Number(m[2]);
+
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+
+  const montar = (ano: number) => {
+    const d = new Date(ano, mes - 1, dia);
+    return d.getMonth() === mes - 1 && d.getDate() === dia ? d : null;
+  };
+
+  let d = montar(hoje.getFullYear());
+  if (!d) return null;
+
+  if (d < hoje) {
+    d = montar(hoje.getFullYear() + 1);
+    if (!d) return null;
+  }
+
+  return `${d.getFullYear()}-${String(mes).padStart(2, "0")}-${String(dia).padStart(2, "0")}`;
+};
+
+const mascaraDias = (valor: string) =>
+  valor
+    .split(",")
+    .map((parte) => parte.replace(/\D/g, "").slice(0, 2))
+    .join(", ");
 
 export default function AdminPage() {
   const router = useRouter();
@@ -171,26 +212,20 @@ export default function AdminPage() {
   const [modalRestricaoAberto, setModalRestricaoAberto] = useState(false);
   const [membroRestricao, setMembroRestricao] = useState("");
   const [dataRestricao, setDataRestricao] = useState("");
-  const [periodoRestricao, setPeriodoRestricao] = useState<"manha" | "tarde">(
-    "manha"
-  );
+  const [periodoRestricao, setPeriodoRestricao] = useState<
+    "manha" | "tarde" | "dia" | "mes"
+  >("manha");
   const [erroRestricao, setErroRestricao] = useState("");
-const [avisosPublicados, setAvisosPublicados] = useState<AvisoPublicado[]>([]);
-const [modalAvisoAberto, setModalAvisoAberto] = useState(false);
-const [fotoAviso, setFotoAviso] = useState<File | null>(null);
-const [observacaoAviso, setObservacaoAviso] = useState("");
-const [enviandoAviso, setEnviandoAviso] = useState(false);
+  const [restringirSabado, setRestringirSabado] = useState(false);
+  const [mesSabados, setMesSabados] = useState("");
+  const [avisosPublicados, setAvisosPublicados] = useState<AvisoPublicado[]>([]);
+  const [modalAvisoAberto, setModalAvisoAberto] = useState(false);
+  const [fotoAviso, setFotoAviso] = useState<File | null>(null);
+  const [observacaoAviso, setObservacaoAviso] = useState("");
+  const [enviandoAviso, setEnviandoAviso] = useState(false);
 
-const inputGaleriaRef = useRef<HTMLInputElement>(null);
-const inputCameraRef = useRef<HTMLInputElement>(null);
-  const [restricaoEditando, setRestricaoEditando] = useState<number | null>(
-    null
-  );
-  const [dataEdicaoRestricao, setDataEdicaoRestricao] = useState("");
-  const [periodoEdicaoRestricao, setPeriodoEdicaoRestricao] = useState<
-    "manha" | "tarde" | ""
-  >("");
-  const [erroEdicaoRestricao, setErroEdicaoRestricao] = useState("");
+  const inputGaleriaRef = useRef<HTMLInputElement>(null);
+  const inputCameraRef = useRef<HTMLInputElement>(null);
 
   // Aviso flutuante (substitui os alert() do navegador)
   const [aviso, setAviso] = useState("");
@@ -213,96 +248,98 @@ const inputCameraRef = useRef<HTMLInputElement>(null);
       }
     };
   }, []);
-const carregarAvisos = useCallback(async () => {
-  const { data, error } = await supabase
-    .from("avisos")
-    .select("id, imagem_url, observacao, criado_em")
-    .order("criado_em", { ascending: false });
 
-  if (error) {
-    mostrarAviso(`Não foi possível carregar os avisos: ${error.message}`);
-    return;
-  }
+  const carregarAvisos = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("avisos")
+      .select("id, imagem_url, observacao, criado_em")
+      .order("criado_em", { ascending: false });
 
-  setAvisosPublicados((data ?? []) as AvisoPublicado[]);
-}, [mostrarAviso]);
+    if (error) {
+      mostrarAviso(`Não foi possível carregar os avisos: ${error.message}`);
+      return;
+    }
 
-const selecionarFotoAviso = (arquivo: File | undefined) => {
-  if (!arquivo) return;
+    setAvisosPublicados((data ?? []) as AvisoPublicado[]);
+  }, [mostrarAviso]);
 
-  const tiposPermitidos = ["image/jpeg", "image/png", "image/webp"];
+  const selecionarFotoAviso = (arquivo: File | undefined) => {
+    if (!arquivo) return;
 
-  if (!tiposPermitidos.includes(arquivo.type)) {
-    mostrarAviso("Escolha uma imagem JPG, PNG ou WebP.");
-    return;
-  }
+    const tiposPermitidos = ["image/jpeg", "image/png", "image/webp"];
 
-  if (arquivo.size > 5 * 1024 * 1024) {
-    mostrarAviso("A imagem deve ter no máximo 5 MB.");
-    return;
-  }
+    if (!tiposPermitidos.includes(arquivo.type)) {
+      mostrarAviso("Escolha uma imagem JPG, PNG ou WebP.");
+      return;
+    }
 
-  setFotoAviso(arquivo);
-};
+    if (arquivo.size > 5 * 1024 * 1024) {
+      mostrarAviso("A imagem deve ter no máximo 5 MB.");
+      return;
+    }
 
-const fecharModalAviso = () => {
-  setModalAvisoAberto(false);
-  setFotoAviso(null);
-  setObservacaoAviso("");
+    setFotoAviso(arquivo);
+  };
 
-  if (inputGaleriaRef.current) inputGaleriaRef.current.value = "";
-  if (inputCameraRef.current) inputCameraRef.current.value = "";
-};
+  const fecharModalAviso = () => {
+    setModalAvisoAberto(false);
+    setFotoAviso(null);
+    setObservacaoAviso("");
 
-const publicarAviso = async (e: FormEvent<HTMLFormElement>) => {
-  e.preventDefault();
+    if (inputGaleriaRef.current) inputGaleriaRef.current.value = "";
+    if (inputCameraRef.current) inputCameraRef.current.value = "";
+  };
 
-  if (!fotoAviso) {
-    mostrarAviso("Escolha uma foto da galeria ou tire uma foto.");
-    return;
-  }
+  const publicarAviso = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
 
-  setEnviandoAviso(true);
+    if (!fotoAviso) {
+      mostrarAviso("Escolha uma foto da galeria ou tire uma foto.");
+      return;
+    }
 
-  const extensao = fotoAviso.name.split(".").pop()?.toLowerCase() || "jpg";
-  const caminho = `aviso-${Date.now()}-${Math.random()
-    .toString(36)
-    .slice(2)}.${extensao}`;
+    setEnviandoAviso(true);
 
-  const { error: erroUpload } = await supabase.storage
-    .from("avisos")
-    .upload(caminho, fotoAviso, {
-      contentType: fotoAviso.type,
-      upsert: false,
+    const extensao = fotoAviso.name.split(".").pop()?.toLowerCase() || "jpg";
+    const caminho = `aviso-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2)}.${extensao}`;
+
+    const { error: erroUpload } = await supabase.storage
+      .from("avisos")
+      .upload(caminho, fotoAviso, {
+        contentType: fotoAviso.type,
+        upsert: false,
+      });
+
+    if (erroUpload) {
+      setEnviandoAviso(false);
+      mostrarAviso(`Não foi possível enviar a foto: ${erroUpload.message}`);
+      return;
+    }
+
+    const { data: urlPublica } = supabase.storage
+      .from("avisos")
+      .getPublicUrl(caminho);
+
+    const { error: erroSalvar } = await supabase.from("avisos").insert({
+      imagem_url: urlPublica.publicUrl,
+      observacao: observacaoAviso.trim() || null,
     });
 
-  if (erroUpload) {
+    if (erroSalvar) {
+      await supabase.storage.from("avisos").remove([caminho]);
+      setEnviandoAviso(false);
+      mostrarAviso(`Não foi possível salvar o aviso: ${erroSalvar.message}`);
+      return;
+    }
+
+    fecharModalAviso();
     setEnviandoAviso(false);
-    mostrarAviso(`Não foi possível enviar a foto: ${erroUpload.message}`);
-    return;
-  }
+    mostrarAviso("Aviso publicado.");
+    await carregarAvisos();
+  };
 
-  const { data: urlPublica } = supabase.storage
-    .from("avisos")
-    .getPublicUrl(caminho);
-
-  const { error: erroSalvar } = await supabase.from("avisos").insert({
-    imagem_url: urlPublica.publicUrl,
-    observacao: observacaoAviso.trim() || null,
-  });
-
-  if (erroSalvar) {
-    await supabase.storage.from("avisos").remove([caminho]);
-    setEnviandoAviso(false);
-    mostrarAviso(`Não foi possível salvar o aviso: ${erroSalvar.message}`);
-    return;
-  }
-
-  fecharModalAviso();
-  setEnviandoAviso(false);
-  mostrarAviso("Aviso publicado.");
-  await carregarAvisos();
-};
   // Confirmação dentro da página (substitui os confirm() do navegador)
   const [confirmacao, setConfirmacao] = useState<PedidoConfirmacao | null>(
     null
@@ -707,6 +744,8 @@ const publicarAviso = async (e: FormEvent<HTMLFormElement>) => {
     setDataRestricao("");
     setPeriodoRestricao("manha");
     setErroRestricao("");
+    setRestringirSabado(false);
+    setMesSabados("");
   };
 
   const adicionarRestricao = async (e: FormEvent<HTMLFormElement>) => {
@@ -719,18 +758,155 @@ const publicarAviso = async (e: FormEvent<HTMLFormElement>) => {
       return;
     }
 
-    if (!dataRestricao) {
-      setErroRestricao("Escolha a data.");
-      return;
-    }
-
-    const { error } = await supabase.from("restricoes").insert({
+    const base = {
       nome: membro.nome,
       sobrenome: membro.sobrenome,
-      data: dataRestricao,
       motivo: null,
-      periodo: periodoRestricao,
-    });
+    };
+
+    const periodoFinal: "manha" | "tarde" | null =
+      periodoRestricao === "manha" || periodoRestricao === "tarde"
+        ? periodoRestricao
+        : null;
+
+    const linhas: (typeof base & {
+      data: string;
+      periodo: "manha" | "tarde" | null;
+    })[] = [];
+
+    if (restringirSabado) {
+      const hoje = new Date();
+      hoje.setHours(0, 0, 0, 0);
+
+      let cursor: Date;
+      let limite: Date;
+
+      if (mesSabados) {
+        // Apenas os sábados do mês escolhido
+        const mes = Number(mesSabados);
+        const ano =
+          mes - 1 < hoje.getMonth()
+            ? hoje.getFullYear() + 1
+            : hoje.getFullYear();
+
+        const inicioMes = new Date(ano, mes - 1, 1);
+        cursor = inicioMes < hoje ? new Date(hoje) : inicioMes;
+        limite = new Date(ano, mes, 0);
+      } else {
+        // Todos os sábados dos próximos 12 meses
+        cursor = new Date(hoje);
+        limite = new Date(hoje);
+        limite.setFullYear(limite.getFullYear() + 1);
+      }
+
+      cursor.setDate(cursor.getDate() + ((6 - cursor.getDay() + 7) % 7));
+
+      while (cursor <= limite) {
+        const iso = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`;
+
+        const jaExiste = restricoes.some(
+          (r) =>
+            r.nome === membro.nome &&
+            (r.sobrenome ?? "") === (membro.sobrenome ?? "") &&
+            r.data === iso &&
+            (r.periodo ?? null) === periodoFinal
+        );
+
+        if (!jaExiste) {
+          linhas.push({ ...base, data: iso, periodo: periodoFinal });
+        }
+
+        cursor.setDate(cursor.getDate() + 7);
+      }
+
+      if (linhas.length === 0) {
+        setErroRestricao(
+          mesSabados
+            ? "Esse membro já tem todos os sábados desse mês restritos."
+            : "Esse membro já tem todos os sábados restritos."
+        );
+        return;
+      }
+    } else {
+      if (!mesSabados) {
+        setErroRestricao("Escolha o mês.");
+        return;
+      }
+
+      const datasISO: string[] = [];
+
+      if (periodoRestricao === "mes") {
+        // Mês inteiro: não precisa de dia, usa o dia 1 só como referência
+        const iso = diaMesParaISO(`01/${mesSabados.padStart(2, "0")}`);
+
+        if (!iso) {
+          setErroRestricao("Mês inválido.");
+          return;
+        }
+
+        datasISO.push(iso);
+      } else {
+        const partes = dataRestricao
+          .split(",")
+          .map((p) => p.trim())
+          .filter(Boolean);
+
+        if (partes.length === 0) {
+          setErroRestricao("Digite pelo menos um dia.");
+          return;
+        }
+
+        for (const parte of partes) {
+          const texto = `${parte.padStart(2, "0")}/${mesSabados.padStart(2, "0")}`;
+          const iso = diaMesParaISO(texto);
+
+          if (!iso) {
+            setErroRestricao(`Dia inválido: "${parte}" no mês escolhido.`);
+            return;
+          }
+
+          if (!datasISO.includes(iso)) datasISO.push(iso);
+        }
+      }
+
+      if (periodoRestricao === "mes") {
+        const [ano, mes] = datasISO[0].split("-").map(Number);
+        const ultimoDia = new Date(ano, mes, 0).getDate();
+
+        for (let dia = 1; dia <= ultimoDia; dia += 1) {
+          const diaSemana = new Date(ano, mes - 1, dia).getDay();
+
+          if (diaSemana === 0 || diaSemana === 6) {
+            linhas.push({
+              ...base,
+              data: `${ano}-${String(mes).padStart(2, "0")}-${String(dia).padStart(2, "0")}`,
+              periodo: null,
+            });
+          }
+        }
+      } else {
+        for (const iso of datasISO) {
+          const jaExiste = restricoes.some(
+            (r) =>
+              r.nome === membro.nome &&
+              (r.sobrenome ?? "") === (membro.sobrenome ?? "") &&
+              r.data === iso &&
+              (r.periodo ?? null) === periodoFinal
+          );
+
+          if (!jaExiste) {
+            linhas.push({ ...base, data: iso, periodo: periodoFinal });
+          }
+        }
+
+        if (linhas.length === 0) {
+          setErroRestricao("Esse membro já tem restrição nessas datas.");
+          return;
+        }
+      }
+    }
+
+    const { error } = await supabase.from("restricoes").insert(linhas);
 
     if (error) {
       console.error("Erro ao salvar restrição:", error.message);
@@ -738,83 +914,43 @@ const publicarAviso = async (e: FormEvent<HTMLFormElement>) => {
       return;
     }
 
+    const avisoSabados = restringirSabado
+      ? mesSabados
+        ? `${membro.nome} não estará disponível em todos os sábados do mês selecionado.`
+        : `${membro.nome} não estará disponível em todos os sábados (próximos 12 meses).`
+      : "";
+
     fecharModalRestricao();
     await carregarRestricoes();
-  };
 
-  const iniciarEdicaoRestricao = (indice: number) => {
-    const restricao = restricoes[indice];
-    if (!restricao) return;
-
-    setRestricaoEditando(indice);
-    setDataEdicaoRestricao(restricao.data);
-    setPeriodoEdicaoRestricao(restricao.periodo ?? "");
-    setErroEdicaoRestricao("");
-  };
-
-  const cancelarEdicaoRestricao = () => {
-    setRestricaoEditando(null);
-    setDataEdicaoRestricao("");
-    setPeriodoEdicaoRestricao("");
-    setErroEdicaoRestricao("");
-  };
-
-  const salvarEdicaoRestricao = async () => {
-    if (restricaoEditando === null) return;
-
-    const restricao = restricoes[restricaoEditando];
-    if (!restricao) return;
-
-    if (!dataEdicaoRestricao) {
-      setErroEdicaoRestricao("Escolha a data.");
-      return;
+    if (avisoSabados) {
+      mostrarAviso(avisoSabados);
     }
-
-    const { error } = await supabase
-      .from("restricoes")
-      .update({
-        data: dataEdicaoRestricao,
-        periodo:
-          periodoEdicaoRestricao === "" ? null : periodoEdicaoRestricao,
-      })
-      .eq("id", restricao.id);
-
-    if (error) {
-      console.error("Erro ao atualizar restrição:", error.message);
-      setErroEdicaoRestricao(`Não foi possível salvar: ${error.message}`);
-      return;
-    }
-
-    cancelarEdicaoRestricao();
-    await carregarRestricoes();
   };
 
-  const apagarRestricao = (indice: number) => {
-    const restricao = restricoes[indice];
-    if (!restricao) return;
+  const apagarRestricoesDoMembro = (lista: Restricao[]) => {
+    const ids = lista.map((r) => r.id);
 
     setConfirmacao({
-      titulo: "Apagar restrição",
-      mensagem: `Apagar a restrição de ${restricao.nome} ${restricao.sobrenome} em ${formatarData(restricao.data)}?`,
+      titulo: "Apagar restrições",
+      mensagem: `Apagar as ${ids.length} restrição(ões) de ${lista[0].nome}?`,
       aoConfirmar: () => {
-        void removerRestricao(restricao);
+        void (async () => {
+          const { error } = await supabase
+            .from("restricoes")
+            .delete()
+            .in("id", ids);
+
+          if (error) {
+            mostrarAviso(`Não foi possível apagar: ${error.message}`);
+            return;
+          }
+
+          mostrarAviso("Restrições apagadas.");
+          await carregarRestricoes();
+        })();
       },
     });
-  };
-
-  const removerRestricao = async (restricao: Restricao) => {
-    const { error } = await supabase
-      .from("restricoes")
-      .delete()
-      .eq("id", restricao.id);
-
-    if (error) {
-      mostrarAviso(`Não foi possível apagar a restrição: ${error.message}`);
-      return;
-    }
-
-    mostrarAviso("Restrição apagada.");
-    await carregarRestricoes();
   };
 
   // ---------- Escala ----------
@@ -1025,6 +1161,34 @@ const publicarAviso = async (e: FormEvent<HTMLFormElement>) => {
     setTextoEdicao("");
   };
 
+  const removerFuncaoDoDia = (
+    dia: DiaEscala,
+    item: ItemEscala,
+    periodo: "manha" | "tarde"
+  ) => {
+    setEscala((atual) =>
+      atual.map((d) =>
+        d.data !== dia.data
+          ? d
+          : {
+              ...d,
+              itens: d.itens.map((i) =>
+                i.funcao !== item.funcao
+                  ? i
+                  : periodo === "manha"
+                    ? { ...i, manha: null, ocultoManha: true }
+                    : { ...i, tarde: null, ocultoTarde: true }
+              ),
+            }
+      )
+    );
+
+    if (editando === `${dia.data}|${item.funcao}|${periodo}`) {
+      setEditando(null);
+      setTextoEdicao("");
+    }
+  };
+
   const celulaEscala = (
     dia: DiaEscala,
     item: ItemEscala,
@@ -1037,13 +1201,33 @@ const publicarAviso = async (e: FormEvent<HTMLFormElement>) => {
       return (
         <p className="escala-publica-item" key={chave}>
           <strong>{item.funcao}:</strong>{" "}
-          <input
-            type="text"
+          <select
             className="login-campo"
             value={textoEdicao}
             onChange={(e) => setTextoEdicao(e.target.value)}
-            style={{ width: 160, display: "inline-block" }}
-          />{" "}
+            style={{ width: 200, display: "inline-block" }}
+          >
+            <option value="">— Ninguém —</option>
+
+            {/* Mantém o valor atual visível, mesmo que a pessoa não tenha mais a função */}
+            {textoEdicao &&
+              !usuarios.some(
+                (u) =>
+                  `${u.nome} ${u.sobrenome}`.trim() === textoEdicao &&
+                  (u.atribuicoes ?? []).includes(item.funcao)
+              ) && <option value={textoEdicao}>{textoEdicao}</option>}
+
+            {usuarios
+              .filter((u) => (u.atribuicoes ?? []).includes(item.funcao))
+              .map((u) => {
+                const nomeCompleto = `${u.nome} ${u.sobrenome}`.trim();
+                return (
+                  <option key={u.id} value={nomeCompleto}>
+                    {nomeCompleto}
+                  </option>
+                );
+              })}
+          </select>{" "}
           <button
             type="button"
             className="admin-botao-editar"
@@ -1089,8 +1273,42 @@ const publicarAviso = async (e: FormEvent<HTMLFormElement>) => {
             {valor}
           </button>
         ) : (
-          <span>—</span>
-        )}
+          <button
+            type="button"
+            onClick={() => {
+              setEditando(chave);
+              setTextoEdicao("");
+            }}
+            title="Clique para escolher"
+            style={{
+              background: "none",
+              border: "none",
+              padding: 0,
+              font: "inherit",
+              color: "inherit",
+              cursor: "pointer",
+            }}
+          >
+            —
+          </button>
+        )}{" "}
+        <button
+          type="button"
+          onClick={() => removerFuncaoDoDia(dia, item, periodo)}
+          title="Remover esta função deste dia"
+          aria-label={`Remover ${item.funcao} deste dia`}
+          style={{
+            background: "none",
+            border: "none",
+            padding: "0 4px",
+            font: "inherit",
+            color: "inherit",
+            cursor: "pointer",
+            opacity: 0.7,
+          }}
+        >
+          ✕
+        </button>
       </p>
     );
   };
@@ -1109,6 +1327,16 @@ const publicarAviso = async (e: FormEvent<HTMLFormElement>) => {
   const restricoesFuturas = [...restricoes]
     .filter((r) => r.data >= hojeISO)
     .sort((a, b) => a.data.localeCompare(b.data));
+
+  const restricoesPorMembro = Object.values(
+    restricoes.reduce<Record<string, Restricao[]>>((acc, r) => {
+      const chave = `${r.nome}|${r.sobrenome ?? ""}`;
+      (acc[chave] ??= []).push(r);
+      return acc;
+    }, {})
+  ).map((lista) =>
+    [...lista].sort((a, b) => a.data.localeCompare(b.data))
+  );
 
   return (
     <div className="inicio-pagina">
@@ -1396,8 +1624,10 @@ const publicarAviso = async (e: FormEvent<HTMLFormElement>) => {
                       </h4>
 
                       {dia.itens
-                        .filter((item) =>
-                          FUNCOES_ESCALA.includes(item.funcao)
+                        .filter(
+                          (item) =>
+                            FUNCOES_ESCALA.includes(item.funcao) &&
+                            !item.ocultoManha
                         )
                         .map((item) =>
                           celulaEscala(dia, item, "manha")
@@ -1409,9 +1639,12 @@ const publicarAviso = async (e: FormEvent<HTMLFormElement>) => {
                         Noite -
                       </h4>
 
-                      {dia.itens.map((item) =>
-                        celulaEscala(dia, item, "tarde")
-                      )}
+                      {[...dia.itens]
+                        .filter((item) => !item.ocultoTarde)
+                        .sort(
+                          (a, b) => ordemNoite(a.funcao) - ordemNoite(b.funcao)
+                        )
+                        .map((item) => celulaEscala(dia, item, "tarde"))}
                     </div>
                   </div>
                 </div>
@@ -1480,113 +1713,44 @@ const publicarAviso = async (e: FormEvent<HTMLFormElement>) => {
                 <thead>
                   <tr>
                     <th>Nome</th>
-                    <th>Data</th>
-                    <th>Período</th>
-                    <th>Motivo</th>
+                    <th>Dias</th>
                     <th>Ações</th>
                   </tr>
                 </thead>
 
                 <tbody>
-                  {restricoes.map((restricao, indice) => {
-                    const emEdicao = restricaoEditando === indice;
+                  {restricoesPorMembro.map((lista) => (
+                    <tr key={`${lista[0].nome}|${lista[0].sobrenome}`}>
+                      <td>{lista[0].nome}</td>
 
-                    return (
-                      <tr key={restricao.id}>
-                        <td>
-                          {restricao.nome} {restricao.sobrenome}
-                        </td>
+                      <td>
+                        {lista
+                          .map((r) => {
+                            const [, mes, dia] = r.data.split("-");
+                            const sufixo =
+                              r.periodo === "manha"
+                                ? " (Manhã)"
+                                : r.periodo === "tarde"
+                                  ? " (Tarde)"
+                                  : "";
+                            return `${dia}/${mes}${sufixo}`;
+                          })
+                          .join(", ")}
+                      </td>
 
-                        <td>
-                          {emEdicao ? (
-                            <input
-                              type="date"
-                              className="login-campo"
-                              value={dataEdicaoRestricao}
-                              onChange={(e) => {
-                                setDataEdicaoRestricao(e.target.value);
-                                setErroEdicaoRestricao("");
-                              }}
-                            />
-                          ) : (
-                            formatarData(restricao.data)
-                          )}
-                        </td>
-
-                        <td>
-                          {emEdicao ? (
-                            <select
-                              className="login-campo"
-                              value={periodoEdicaoRestricao}
-                              onChange={(e) =>
-                                setPeriodoEdicaoRestricao(
-                                  e.target.value as "manha" | "tarde" | ""
-                                )
-                              }
-                            >
-                              <option value="">Dia inteiro</option>
-                              <option value="manha">Manhã</option>
-                              <option value="tarde">Tarde</option>
-                            </select>
-                          ) : (
-                            nomePeriodo(restricao.periodo)
-                          )}
-                        </td>
-
-                        <td>{restricao.motivo || "-"}</td>
-
-                        <td>
-                          {emEdicao ? (
-                            <div className="admin-acoes">
-                              <button
-                                type="button"
-                                className="admin-botao-editar"
-                                onClick={() => void salvarEdicaoRestricao()}
-                              >
-                                Salvar
-                              </button>
-
-                              <button
-                                type="button"
-                                className="admin-botao-apagar"
-                                onClick={cancelarEdicaoRestricao}
-                              >
-                                Cancelar
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="admin-acoes">
-                              <button
-                                type="button"
-                                className="admin-botao-editar"
-                                onClick={() =>
-                                  iniciarEdicaoRestricao(indice)
-                                }
-                              >
-                                Editar
-                              </button>
-
-                              <button
-                                type="button"
-                                className="admin-botao-apagar"
-                                onClick={() => apagarRestricao(indice)}
-                              >
-                                Apagar
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                      <td>
+                        <button
+                          type="button"
+                          className="admin-botao-apagar"
+                          onClick={() => apagarRestricoesDoMembro(lista)}
+                        >
+                          Apagar
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
-            )}
-
-            {erroEdicaoRestricao && (
-              <p className="login-erro" role="alert">
-                {erroEdicaoRestricao}
-              </p>
             )}
           </section>
         )}
@@ -1636,24 +1800,87 @@ const publicarAviso = async (e: FormEvent<HTMLFormElement>) => {
                 </select>
               </div>
 
+              {!restringirSabado && periodoRestricao !== "mes" && (
+                <div>
+                  <label htmlFor="dia-restricao" className="login-rotulo">
+                    Dia
+                  </label>
+
+                  <input
+                    id="dia-restricao"
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="Ex: 5, 12, 19"
+                    required
+                    value={dataRestricao}
+                    onChange={(e) => {
+                      setDataRestricao(mascaraDias(e.target.value));
+                      setErroRestricao("");
+                    }}
+                    className="login-campo"
+                    style={{ width: "100%", boxSizing: "border-box" }}
+                  />
+                </div>
+              )}
+
               <div>
-                <label htmlFor="data-restricao" className="login-rotulo">
-                  Data
+                <label htmlFor="mes-sabados" className="login-rotulo">
+                  Mês
                 </label>
 
-                <input
-                  id="data-restricao"
-                  type="date"
-                  required
-                  value={dataRestricao}
+                <select
+                  id="mes-sabados"
+                  required={!restringirSabado}
+                  value={mesSabados}
                   onChange={(e) => {
-                    setDataRestricao(e.target.value);
+                    setMesSabados(e.target.value);
                     setErroRestricao("");
                   }}
                   className="login-campo"
                   style={{ width: "100%", boxSizing: "border-box" }}
-                />
+                >
+                  <option value="">
+                    {restringirSabado ? "Próximos 12 meses" : "Escolha o mês"}
+                  </option>
+                  {[
+                    "Janeiro",
+                    "Fevereiro",
+                    "Março",
+                    "Abril",
+                    "Maio",
+                    "Junho",
+                    "Julho",
+                    "Agosto",
+                    "Setembro",
+                    "Outubro",
+                    "Novembro",
+                    "Dezembro",
+                  ].map((nomeMes, i) => (
+                    <option key={nomeMes} value={String(i + 1)}>
+                      {nomeMes}
+                    </option>
+                  ))}
+                </select>
               </div>
+
+              <label
+                className="login-opcao"
+                style={{ display: "flex", alignItems: "center", gap: 8 }}
+              >
+                <input
+                  type="checkbox"
+                  className="login-checkbox"
+                  checked={restringirSabado}
+                  onChange={(e) => {
+                    setRestringirSabado(e.target.checked);
+                    if (e.target.checked && periodoRestricao === "mes") {
+                      setPeriodoRestricao("dia");
+                    }
+                    setErroRestricao("");
+                  }}
+                />
+                Restringir todos os sábados
+              </label>
 
               <div>
                 <label htmlFor="periodo-restricao" className="login-rotulo">
@@ -1665,12 +1892,9 @@ const publicarAviso = async (e: FormEvent<HTMLFormElement>) => {
                   required
                   value={periodoRestricao}
                   onChange={(e) => {
-                    const valor = e.target.value;
-
-                    if (valor === "manha" || valor === "tarde") {
-                      setPeriodoRestricao(valor);
-                    }
-
+                    setPeriodoRestricao(
+                      e.target.value as "manha" | "tarde" | "dia" | "mes"
+                    );
                     setErroRestricao("");
                   }}
                   className="login-campo"
@@ -1678,6 +1902,8 @@ const publicarAviso = async (e: FormEvent<HTMLFormElement>) => {
                 >
                   <option value="manha">Manhã</option>
                   <option value="tarde">Tarde</option>
+                  <option value="dia">Dia inteiro</option>
+                  {!restringirSabado && <option value="mes">Mês inteiro</option>}
                 </select>
               </div>
 
@@ -1739,7 +1965,6 @@ const publicarAviso = async (e: FormEvent<HTMLFormElement>) => {
                   className="login-campo"
                 />
               </div>
-
               <div>
                 <label className="login-rotulo">
                   Atribuições / Funções:

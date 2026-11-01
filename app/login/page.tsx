@@ -231,22 +231,6 @@ export default function LoginPage() {
                 className="login-campo"
               />
             </div>
-
-            <div>
-              <label className="login-rotulo" htmlFor="registro-sobrenome">
-                Sobrenome
-              </label>
-
-              <input
-                id="registro-sobrenome"
-                type="text"
-                value={sobrenome}
-                onChange={(e) => setSobrenome(e.target.value)}
-                placeholder="Digite seu sobrenome"
-                className="login-campo"
-              />
-            </div>
-
             <div>
               <label className="login-rotulo" htmlFor="registro-senha">
                 Senha

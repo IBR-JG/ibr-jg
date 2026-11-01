@@ -127,14 +127,6 @@ export default function InicioPage() {
   const [periodo, setPeriodo] = useState<"manha" | "tarde" | "">("");
   const [motivo, setMotivo] = useState("");
 
-  const [restricaoEditando, setRestricaoEditando] =
-    useState<Restricao | null>(null);
-  const [dataEdicao, setDataEdicao] = useState("");
-  const [periodoEdicao, setPeriodoEdicao] = useState<
-    "manha" | "tarde" | ""
-  >("");
-  const [motivoEdicao, setMotivoEdicao] = useState("");
-
   const [mostrarEscala, setMostrarEscala] = useState(false);
   const [escalaPublicada, setEscalaPublicada] = useState<DiaEscala[]>([]);
 
@@ -145,8 +137,9 @@ export default function InicioPage() {
 
   const [notificacao, setNotificacao] = useState("");
   const [aviso, setAviso] = useState("");
-  const [restricaoParaApagar, setRestricaoParaApagar] =
-    useState<Restricao | null>(null);
+  const [restricoesParaApagar, setRestricoesParaApagar] = useState<
+    Restricao[] | null
+  >(null);
 
   const carregarRestricoes = useCallback(async () => {
     const { data, error } = await supabase
@@ -299,13 +292,15 @@ export default function InicioPage() {
     await carregarRestricoes();
   };
 
-  const apagarRestricao = async () => {
-    if (!restricaoParaApagar) return;
+  const apagarRestricoes = async () => {
+    if (!restricoesParaApagar || restricoesParaApagar.length === 0) return;
+
+    const ids = restricoesParaApagar.map((r) => r.id);
 
     const { error } = await supabase
       .from("restricoes")
       .delete()
-      .eq("id", restricaoParaApagar.id);
+      .in("id", ids);
 
     if (error) {
       console.error("Erro ao apagar restrição:", error);
@@ -313,45 +308,8 @@ export default function InicioPage() {
       return;
     }
 
-    setRestricaoParaApagar(null);
-    setAviso("Restrição apagada.");
-    await carregarRestricoes();
-  };
-
-  const iniciarEdicao = (restricao: Restricao) => {
-    setRestricaoEditando(restricao);
-    setDataEdicao(restricao.data);
-    setPeriodoEdicao(restricao.periodo ?? "");
-    setMotivoEdicao(restricao.motivo ?? "");
-  };
-
-  const cancelarEdicao = () => {
-    setRestricaoEditando(null);
-    setDataEdicao("");
-    setPeriodoEdicao("");
-    setMotivoEdicao("");
-  };
-
-  const salvarEdicao = async () => {
-    if (!restricaoEditando || !dataEdicao) return;
-
-    const { error } = await supabase
-      .from("restricoes")
-      .update({
-        data: dataEdicao,
-        motivo: motivoEdicao.trim() || null,
-        periodo: periodoEdicao === "" ? null : periodoEdicao,
-      })
-      .eq("id", restricaoEditando.id);
-
-    if (error) {
-      console.error("Erro ao atualizar restrição:", error);
-      setAviso(`Não foi possível atualizar a restrição: ${error.message}`);
-      return;
-    }
-
-    cancelarEdicao();
-    setAviso("Restrição atualizada.");
+    setRestricoesParaApagar(null);
+    setAviso("Restrições apagadas.");
     await carregarRestricoes();
   };
 
@@ -380,6 +338,15 @@ export default function InicioPage() {
     a.data.localeCompare(b.data)
   );
 
+  // Uma linha por pessoa, com as datas agrupadas
+  const restricoesPorMembro = Object.values(
+    restricoesOrdenadas.reduce<Record<string, Restricao[]>>((acc, r) => {
+      const chave = `${r.nome}|${r.sobrenome ?? ""}`;
+      (acc[chave] ??= []).push(r);
+      return acc;
+    }, {})
+  );
+
   const minhasRestricoes = restricoesOrdenadas.filter(ehMinhaRestricao);
 
   const nomeCompleto = normalizarNome(
@@ -394,7 +361,7 @@ export default function InicioPage() {
   ).padStart(2, "0")}-${String(hoje.getDate()).padStart(2, "0")}`;
 
   const proximasEscalasPublicadas = [...escalaPublicada].sort((a, b) =>
-  a.data.localeCompare(b.data)
+    a.data.localeCompare(b.data)
   );
 
   const correspondeAoUsuario = (nomeNaEscala: string | null) => {
@@ -412,35 +379,35 @@ export default function InicioPage() {
     );
   };
 
-const minhasProximasEscalas = proximasEscalasPublicadas.flatMap((dia) =>
-  (dia.itens ?? [])
-    .flatMap((item) => [
-      ...(item.manha
-        ? [
-            {
-              funcao: item.funcao,
-              pessoa: item.manha,
-              periodo: "manha" as const,
-            },
-          ]
-        : []),
-      ...(item.tarde
-        ? [
-            {
-              funcao: item.funcao,
-              pessoa: item.tarde,
-              periodo: "tarde" as const,
-            },
-          ]
-        : []),
-    ])
-    .filter((atribuicao) => correspondeAoUsuario(atribuicao.pessoa))
-    .map((atribuicao) => ({
-      data: dia.data,
-      periodo: atribuicao.periodo,
-      funcao: rotuloFuncao(atribuicao.funcao),
-    }))
-);
+  const minhasProximasEscalas = proximasEscalasPublicadas.flatMap((dia) =>
+    (dia.itens ?? [])
+      .flatMap((item) => [
+        ...(item.manha
+          ? [
+              {
+                funcao: item.funcao,
+                pessoa: item.manha,
+                periodo: "manha" as const,
+              },
+            ]
+          : []),
+        ...(item.tarde
+          ? [
+              {
+                funcao: item.funcao,
+                pessoa: item.tarde,
+                periodo: "tarde" as const,
+              },
+            ]
+          : []),
+      ])
+      .filter((atribuicao) => correspondeAoUsuario(atribuicao.pessoa))
+      .map((atribuicao) => ({
+        data: dia.data,
+        periodo: atribuicao.periodo,
+        funcao: rotuloFuncao(atribuicao.funcao),
+      }))
+  );
 
   const escalaOrdenada = [...escalaPublicada].sort((a, b) =>
     a.data.localeCompare(b.data)
@@ -660,116 +627,41 @@ const minhasProximasEscalas = proximasEscalasPublicadas.flatMap((dia) =>
                 <thead>
                   <tr>
                     <th>Nome</th>
-                    <th>Data</th>
-                    <th>Período</th>
-                    <th>Motivo</th>
+                    <th>Dias</th>
                     <th>Ações</th>
                   </tr>
                 </thead>
 
                 <tbody>
-                  {restricoesOrdenadas.map((restricao) => {
-                    const emEdicao =
-                      restricaoEditando?.id === restricao.id;
+                  {restricoesPorMembro.map((lista) => (
+                    <tr key={`${lista[0].nome}|${lista[0].sobrenome}`}>
+                      <td>{lista[0].nome}</td>
 
-                    return (
-                      <tr key={restricao.id}>
-                        <td>
-                          {restricao.nome} {restricao.sobrenome}
-                        </td>
+                      <td>
+                        {lista
+                          .map((r) => {
+                            const sufixo =
+                              r.periodo === "manha"
+                                ? " (Manhã)"
+                                : r.periodo === "tarde"
+                                  ? " (Tarde)"
+                                  : "";
+                            return `${formatarDiaMes(r.data)}${sufixo}`;
+                          })
+                          .join(", ")}
+                      </td>
 
-                        <td>
-                          {emEdicao ? (
-                            <input
-                              type="date"
-                              className="login-campo"
-                              value={dataEdicao}
-                              onChange={(e) => setDataEdicao(e.target.value)}
-                            />
-                          ) : (
-                            formatarData(restricao.data)
-                          )}
-                        </td>
-
-                        <td>
-                          {emEdicao ? (
-                            <select
-                              className="login-campo"
-                              value={periodoEdicao}
-                              onChange={(e) =>
-                                setPeriodoEdicao(
-                                  e.target.value as "manha" | "tarde" | ""
-                                )
-                              }
-                            >
-                              <option value="">Dia inteiro</option>
-                              <option value="manha">Manhã</option>
-                              <option value="tarde">Tarde</option>
-                            </select>
-                          ) : (
-                            nomePeriodoRestricao(restricao)
-                          )}
-                        </td>
-
-                        <td>
-                          {emEdicao ? (
-                            <input
-                              type="text"
-                              className="login-campo"
-                              value={motivoEdicao}
-                              onChange={(e) =>
-                                setMotivoEdicao(e.target.value)
-                              }
-                            />
-                          ) : (
-                            restricao.motivo || "-"
-                          )}
-                        </td>
-
-                        <td>
-                          {emEdicao ? (
-                            <div className="admin-acoes">
-                              <button
-                                type="button"
-                                className="admin-botao-editar"
-                                onClick={() => void salvarEdicao()}
-                              >
-                                Salvar
-                              </button>
-
-                              <button
-                                type="button"
-                                className="admin-botao-apagar"
-                                onClick={cancelarEdicao}
-                              >
-                                Cancelar
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="admin-acoes">
-                              <button
-                                type="button"
-                                className="admin-botao-editar"
-                                onClick={() => iniciarEdicao(restricao)}
-                              >
-                                Editar
-                              </button>
-
-                              <button
-                                type="button"
-                                className="admin-botao-apagar"
-                                onClick={() =>
-                                  setRestricaoParaApagar(restricao)
-                                }
-                              >
-                                Apagar
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                      <td>
+                        <button
+                          type="button"
+                          className="admin-botao-apagar"
+                          onClick={() => setRestricoesParaApagar(lista)}
+                        >
+                          Apagar
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             )}
@@ -839,25 +731,25 @@ const minhasProximasEscalas = proximasEscalasPublicadas.flatMap((dia) =>
           </section>
 
           <section className="inicio-cartao">
-  <h3 className="inicio-cartao-titulo">Minhas Escalas</h3>
+            <h3 className="inicio-cartao-titulo">Minhas Escalas</h3>
 
-  {minhasProximasEscalas.length === 0 ? (
-    <p className="inicio-texto-suave">
-      Você não está escalado nas próximas datas.
-    </p>
-  ) : (
-    minhasProximasEscalas.map((item, indice) => (
-      <p
-        key={`${item.data}-${item.funcao}-${item.periodo}-${indice}`}
-        style={{ margin: "5px 0" }}
-      >
-        {formatarDiaMes(item.data)}/
-        {item.periodo === "manha" ? "manhã" : "noite"} - {item.funcao} -{" "}
-        {usuario.nome}
-      </p>
-    ))
-  )}
-</section>
+            {minhasProximasEscalas.length === 0 ? (
+              <p className="inicio-texto-suave">
+                Você não está escalado nas próximas datas.
+              </p>
+            ) : (
+              minhasProximasEscalas.map((item, indice) => (
+                <p
+                  key={`${item.data}-${item.funcao}-${item.periodo}-${indice}`}
+                  style={{ margin: "5px 0" }}
+                >
+                  {formatarDiaMes(item.data)}/
+                  {item.periodo === "manha" ? "manhã" : "noite"} -{" "}
+                  {item.funcao} - {usuario.nome}
+                </p>
+              ))
+            )}
+          </section>
 
           <section className="inicio-cartao">
             <h3 className="inicio-cartao-titulo">
@@ -972,25 +864,24 @@ const minhasProximasEscalas = proximasEscalasPublicadas.flatMap((dia) =>
         </div>
       )}
 
-      {restricaoParaApagar && (
+      {restricoesParaApagar && (
         <div
           className="admin-modal-fundo"
-          onClick={() => setRestricaoParaApagar(null)}
+          onClick={() => setRestricoesParaApagar(null)}
         >
           <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
-            <h2 className="admin-modal-titulo">Apagar restrição</h2>
+            <h2 className="admin-modal-titulo">Apagar restrições</h2>
 
             <p style={{ margin: "0 0 16px" }}>
-              Tem certeza de que deseja apagar a restrição de{" "}
-              {restricaoParaApagar.nome} {restricaoParaApagar.sobrenome} em{" "}
-              {formatarData(restricaoParaApagar.data)}?
+              Apagar as {restricoesParaApagar.length} restrição(ões) de{" "}
+              {restricoesParaApagar[0].nome}?
             </p>
 
             <div className="admin-modal-acoes">
               <button
                 type="button"
                 className="admin-modal-cancelar"
-                onClick={() => setRestricaoParaApagar(null)}
+                onClick={() => setRestricoesParaApagar(null)}
               >
                 Cancelar
               </button>
@@ -998,7 +889,7 @@ const minhasProximasEscalas = proximasEscalasPublicadas.flatMap((dia) =>
               <button
                 type="button"
                 className="admin-botao-apagar"
-                onClick={() => void apagarRestricao()}
+                onClick={() => void apagarRestricoes()}
               >
                 Apagar
               </button>

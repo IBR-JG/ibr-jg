@@ -928,3 +928,9 @@ body {
     flex-wrap: wrap;
   }
 }
+
+select.login-campo option {
+  background-color: #5a1f1a; /* troque pela cor de fundo do seu tema */
+  color: #ffffff; /* troque pela cor do texto do seu tema */
+}
+
