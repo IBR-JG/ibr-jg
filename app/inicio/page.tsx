@@ -948,3 +948,4 @@ export default function InicioPage() {
     </div>
   );
 }
+
