@@ -4,6 +4,12 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "../../lib/supabase";
+import {
+  analisarReferencia,
+  coresGrupos,
+  livroPorNome,
+  livrosDoTestamento,
+} from "../../lib/biblia";
 
 type Usuario = {
   id: string;
@@ -55,15 +61,31 @@ type AvisoPublicado = {
   criado_em: string;
 };
 
+type Versiculo = {
+  id: string;
+  referencia: string;
+  texto: string;
+  criado_em?: string;
+};
+
+type VersiculoBiblia = {
+  verse: number;
+  text: string;
+};
+
 const funcoesPadrao = [
   "Fotografia",
   "Transmissão (OBS)",
   "Projeção (Holyrics)",
   "Social Media / Stories",
   "Áudio (Som)",
+  "Líder",
 ];
 
 const ADMIN_SECOES_KEY = "admin:secoes-abertas";
+
+// Tradução usada para buscar o texto: Almeida Revista e Corrigida 2009
+const TRADUCAO_BIBLIA = "ARC09";
 
 const formatarData = (iso: string) => {
   const [ano, mes, dia] = iso.split("-");
@@ -77,6 +99,21 @@ const nomeDiaSemana = (iso: string) => {
     weekday: "long",
   });
 };
+
+// Remove as marcações que a API devolve (notas, <br>, entidades HTML)
+const limparHtml = (texto: string) =>
+  texto
+    .replace(/<sup[\s\S]*?<\/sup>/gi, "")
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, "<​​​​")
+    .replace(/&gt;/gi, ">")
+    .replace(/\s+/g, " ")
+    .trim();
 
 const temRestricao = (
   membro: Usuario,
@@ -182,6 +219,7 @@ export default function AdminPage() {
   const [pronto, setPronto] = useState(false);
 
   const [mostrarMembros, setMostrarMembros] = useState(false);
+  const [mostrarVersiculos, setMostrarVersiculos] = useState(false);
   const [mostrarFuncoes, setMostrarFuncoes] = useState(false);
   const [mostrarEscala, setMostrarEscala] = useState(false);
   const [mostrarAvisos, setMostrarAvisos] = useState(false);
@@ -221,8 +259,38 @@ export default function AdminPage() {
   const [avisosPublicados, setAvisosPublicados] = useState<AvisoPublicado[]>([]);
   const [modalAvisoAberto, setModalAvisoAberto] = useState(false);
   const [fotoAviso, setFotoAviso] = useState<File | null>(null);
+  const [previewAviso, setPreviewAviso] = useState("");
   const [observacaoAviso, setObservacaoAviso] = useState("");
   const [enviandoAviso, setEnviandoAviso] = useState(false);
+
+  // Aviso aberto em tela cheia (null = fechado)
+  const [avisoAmpliado, setAvisoAmpliado] = useState<AvisoPublicado | null>(
+    null
+  );
+
+  // Versículos (agora vindos do Supabase)
+  const [versiculos, setVersiculos] = useState<Versiculo[]>([]);
+  const [erroVersiculos, setErroVersiculos] = useState("");
+  const [modalVersiculoAberto, setModalVersiculoAberto] = useState(false);
+  const [versiculoEditando, setVersiculoEditando] = useState<string | null>(
+    null
+  );
+  const [referenciaVersiculo, setReferenciaVersiculo] = useState("");
+  const [textoVersiculo, setTextoVersiculo] = useState("");
+  const [erroVersiculo, setErroVersiculo] = useState("");
+  const [salvandoVersiculo, setSalvandoVersiculo] = useState(false);
+  const [abaBiblia, setAbaBiblia] = useState<"AT" | "NT">("AT");
+  const [livroSelecionado, setLivroSelecionado] = useState("");
+  const [capituloSelecionado, setCapituloSelecionado] = useState<number | null>(
+    null
+  );
+  const [versiculoSelecionado, setVersiculoSelecionado] = useState("");
+  const [carregandoTexto, setCarregandoTexto] = useState(false);
+  const [erroTexto, setErroTexto] = useState("");
+  const [totalVersiculos, setTotalVersiculos] = useState<number | null>(null);
+
+  // Guarda os capítulos já baixados para não repetir a busca
+  const cacheCapitulos = useRef<Map<string, VersiculoBiblia[]>>(new Map());
 
   const inputGaleriaRef = useRef<HTMLInputElement>(null);
   const inputCameraRef = useRef<HTMLInputElement>(null);
@@ -248,6 +316,57 @@ export default function AdminPage() {
       }
     };
   }, []);
+
+  // Fecha a imagem ampliada com Esc e trava a rolagem do fundo
+  useEffect(() => {
+    if (!avisoAmpliado) return;
+
+    const aoTeclar = (evento: KeyboardEvent) => {
+      if (evento.key === "Escape") setAvisoAmpliado(null);
+    };
+
+    const rolagemAnterior = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", aoTeclar);
+
+    return () => {
+      window.removeEventListener("keydown", aoTeclar);
+      document.body.style.overflow = rolagemAnterior;
+    };
+  }, [avisoAmpliado]);
+
+  const buscarCapitulo = useCallback(
+    async (numeroLivro: number, capitulo: number) => {
+      const chave = `${numeroLivro}-${capitulo}`;
+      const emCache = cacheCapitulos.current.get(chave);
+
+      if (emCache) return emCache;
+
+      const resposta = await fetch(
+        `https://bolls.life/get-chapter/${TRADUCAO_BIBLIA}/${numeroLivro}/${capitulo}/`
+      );
+
+      if (!resposta.ok) {
+        throw new Error(`a Bíblia respondeu ${resposta.status}`);
+      }
+
+      const dados = (await resposta.json()) as VersiculoBiblia[];
+
+      if (!Array.isArray(dados) || dados.length === 0) {
+        throw new Error("capítulo não encontrado");
+      }
+
+      const versiculosDoCapitulo = dados.map((v) => ({
+        verse: v.verse,
+        text: limparHtml(v.text ?? ""),
+      }));
+
+      cacheCapitulos.current.set(chave, versiculosDoCapitulo);
+
+      return versiculosDoCapitulo;
+    },
+    []
+  );
 
   const carregarAvisos = useCallback(async () => {
     const { data, error } = await supabase
@@ -280,6 +399,19 @@ export default function AdminPage() {
 
     setFotoAviso(arquivo);
   };
+
+  // Cria e libera a URL de pré-visualização da imagem escolhida
+  useEffect(() => {
+    if (!fotoAviso) {
+      setPreviewAviso("");
+      return;
+    }
+
+    const url = URL.createObjectURL(fotoAviso);
+    setPreviewAviso(url);
+
+    return () => URL.revokeObjectURL(url);
+  }, [fotoAviso]);
 
   const fecharModalAviso = () => {
     setModalAvisoAberto(false);
@@ -340,6 +472,37 @@ export default function AdminPage() {
     await carregarAvisos();
   };
 
+  const apagarAviso = (avisoPublicado: AvisoPublicado) => {
+    setConfirmacao({
+      titulo: "Apagar aviso",
+      mensagem: "Apagar este aviso? A imagem também será removida.",
+      aoConfirmar: () => {
+        void removerAviso(avisoPublicado);
+      },
+    });
+  };
+
+  const removerAviso = async (avisoPublicado: AvisoPublicado) => {
+    const caminho = avisoPublicado.imagem_url.split("/avisos/").pop();
+
+    if (caminho) {
+      await supabase.storage.from("avisos").remove([caminho]);
+    }
+
+    const { error } = await supabase
+      .from("avisos")
+      .delete()
+      .eq("id", avisoPublicado.id);
+
+    if (error) {
+      mostrarAviso(`Não foi possível apagar o aviso: ${error.message}`);
+      return;
+    }
+
+    mostrarAviso("Aviso apagado.");
+    await carregarAvisos();
+  };
+
   // Confirmação dentro da página (substitui os confirm() do navegador)
   const [confirmacao, setConfirmacao] = useState<PedidoConfirmacao | null>(
     null
@@ -377,6 +540,24 @@ export default function AdminPage() {
 
     setRestricoes((data ?? []) as Restricao[]);
   }, [mostrarAviso]);
+
+  const carregarVersiculos = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("versiculos")
+      .select("id, referencia, texto, criado_em")
+      .order("criado_em", { ascending: true });
+
+    if (error) {
+      console.error("Erro ao carregar versículos:", error.message);
+      setErroVersiculos(
+        `Não foi possível carregar os versículos: ${error.message}`
+      );
+      return;
+    }
+
+    setErroVersiculos("");
+    setVersiculos((data ?? []) as Versiculo[]);
+  }, []);
 
   const carregarEscalaAdmin = useCallback(async () => {
     const { data, error } = await supabase
@@ -457,6 +638,7 @@ export default function AdminPage() {
         );
 
         setMostrarMembros(Boolean(secoesSalvas.mostrarMembros));
+        setMostrarVersiculos(Boolean(secoesSalvas.mostrarVersiculos));
         setMostrarFuncoes(Boolean(secoesSalvas.mostrarFuncoes));
         setMostrarEscala(Boolean(secoesSalvas.mostrarEscala));
         setMostrarAvisos(Boolean(secoesSalvas.mostrarAvisos));
@@ -471,12 +653,20 @@ export default function AdminPage() {
       void carregarUsuarios();
       void carregarSolicitacoes();
       void carregarRestricoes();
+      void carregarVersiculos();
+      void carregarAvisos();
     } catch (error) {
       console.error("Não foi possível ler os dados salvos do usuário:", error);
       localStorage.removeItem("usuario");
       router.replace("/login");
     }
-  }, [router, carregarRestricoes, carregarEscalaAdmin]);
+  }, [
+    router,
+    carregarRestricoes,
+    carregarEscalaAdmin,
+    carregarVersiculos,
+    carregarAvisos,
+  ]);
 
   useEffect(() => {
     if (!secoesCarregadas) return;
@@ -485,6 +675,7 @@ export default function AdminPage() {
       ADMIN_SECOES_KEY,
       JSON.stringify({
         mostrarMembros,
+        mostrarVersiculos,
         mostrarFuncoes,
         mostrarEscala,
         mostrarAvisos,
@@ -494,6 +685,7 @@ export default function AdminPage() {
   }, [
     secoesCarregadas,
     mostrarMembros,
+    mostrarVersiculos,
     mostrarFuncoes,
     mostrarEscala,
     mostrarAvisos,
@@ -509,6 +701,202 @@ export default function AdminPage() {
   const sair = () => {
     localStorage.removeItem("usuario");
     router.push("/login");
+  };
+
+  // ---------- Versículos ----------
+
+  const abrirModalVersiculo = (versiculo: Versiculo | null) => {
+    setVersiculoEditando(versiculo ? versiculo.id : null);
+    setReferenciaVersiculo(versiculo ? versiculo.referencia : "");
+    setTextoVersiculo(versiculo ? versiculo.texto : "");
+    setErroVersiculo("");
+    setErroTexto("");
+    setCarregandoTexto(false);
+    setTotalVersiculos(null);
+
+    const partes = versiculo ? analisarReferencia(versiculo.referencia) : null;
+    const livro = partes ? livroPorNome(partes.livro) : null;
+
+    setAbaBiblia(livro?.testamento ?? "AT");
+    setLivroSelecionado(livro?.nome ?? "");
+    setCapituloSelecionado(partes?.capitulo ?? null);
+    setVersiculoSelecionado(partes?.versiculo ? String(partes.versiculo) : "");
+
+    setModalVersiculoAberto(true);
+  };
+
+  const fecharModalVersiculo = () => {
+    setModalVersiculoAberto(false);
+    setVersiculoEditando(null);
+    setReferenciaVersiculo("");
+    setTextoVersiculo("");
+    setErroVersiculo("");
+    setSalvandoVersiculo(false);
+    setLivroSelecionado("");
+    setCapituloSelecionado(null);
+    setVersiculoSelecionado("");
+    setCarregandoTexto(false);
+    setErroTexto("");
+    setTotalVersiculos(null);
+  };
+
+  useEffect(() => {
+    if (!livroSelecionado || !capituloSelecionado) return;
+
+    const numero = versiculoSelecionado.trim();
+
+    setReferenciaVersiculo(
+      `${livroSelecionado} ${capituloSelecionado}${numero ? `:${numero}` : ""}`
+    );
+  }, [livroSelecionado, capituloSelecionado, versiculoSelecionado]);
+
+  // Busca o texto do versículo assim que livro, capítulo e número estão escolhidos
+  useEffect(() => {
+    if (!modalVersiculoAberto) return;
+
+    const livro = livroSelecionado ? livroPorNome(livroSelecionado) : null;
+    const capitulo = capituloSelecionado;
+
+    if (!livro || !capitulo) {
+      setTotalVersiculos(null);
+      return;
+    }
+
+    const numero = Number(versiculoSelecionado);
+    let cancelado = false;
+
+    setCarregandoTexto(true);
+    setErroTexto("");
+
+    void (async () => {
+      try {
+        const versiculosDoCapitulo = await buscarCapitulo(
+          livro.numero,
+          capitulo
+        );
+
+        if (cancelado) return;
+
+        setTotalVersiculos(versiculosDoCapitulo.length);
+
+        if (!numero) {
+          setTextoVersiculo("");
+          return;
+        }
+
+        const encontrado = versiculosDoCapitulo.find(
+          (v) => v.verse === numero
+        );
+
+        if (!encontrado) {
+          setTextoVersiculo("");
+          setErroTexto(
+            `Este capítulo tem ${versiculosDoCapitulo.length} versículos. Escolha um número entre 1 e ${versiculosDoCapitulo.length}.`
+          );
+          return;
+        }
+
+        setTextoVersiculo(encontrado.text);
+      } catch (erro) {
+        if (cancelado) return;
+
+        setTextoVersiculo("");
+        setErroTexto(
+          erro instanceof Error
+            ? `Não foi possível buscar o texto: ${erro.message}.`
+            : "Não foi possível buscar o texto."
+        );
+      } finally {
+        if (!cancelado) setCarregandoTexto(false);
+      }
+    })();
+
+    return () => {
+      cancelado = true;
+    };
+  }, [
+    modalVersiculoAberto,
+    livroSelecionado,
+    capituloSelecionado,
+    versiculoSelecionado,
+    buscarCapitulo,
+  ]);
+
+  const salvarVersiculo = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+
+    const referencia = referenciaVersiculo.trim();
+    const texto = textoVersiculo.trim();
+
+    if (!referencia) {
+      setErroVersiculo("Escolha o livro, o capítulo e o versículo.");
+      return;
+    }
+
+    if (!texto) {
+      setErroVersiculo(
+        "O texto ainda não foi carregado. Escolha livro, capítulo e versículo."
+      );
+      return;
+    }
+
+    setSalvandoVersiculo(true);
+
+    if (versiculoEditando === null) {
+      const { error } = await supabase
+        .from("versiculos")
+        .insert({ referencia, texto });
+
+      if (error) {
+        setSalvandoVersiculo(false);
+        setErroVersiculo(`Não foi possível salvar: ${error.message}`);
+        return;
+      }
+
+      mostrarAviso("Versículo adicionado.");
+    } else {
+      const { error } = await supabase
+        .from("versiculos")
+        .update({ referencia, texto })
+        .eq("id", versiculoEditando);
+
+      if (error) {
+        setSalvandoVersiculo(false);
+        setErroVersiculo(`Não foi possível salvar: ${error.message}`);
+        return;
+      }
+
+      mostrarAviso("Versículo salvo.");
+    }
+
+    setSalvandoVersiculo(false);
+    fecharModalVersiculo();
+    await carregarVersiculos();
+  };
+
+  const apagarVersiculo = (versiculo: Versiculo) => {
+    setConfirmacao({
+      titulo: "Apagar versículo",
+      mensagem: `Apagar "${versiculo.referencia}"?`,
+      aoConfirmar: () => {
+        void removerVersiculo(versiculo);
+      },
+    });
+  };
+
+  const removerVersiculo = async (versiculo: Versiculo) => {
+    const { error } = await supabase
+      .from("versiculos")
+      .delete()
+      .eq("id", versiculo.id);
+
+    if (error) {
+      mostrarAviso(`Não foi possível apagar: ${error.message}`);
+      return;
+    }
+
+    mostrarAviso("Versículo apagado.");
+    await carregarVersiculos();
   };
 
   // ---------- Solicitações ----------
@@ -1338,6 +1726,8 @@ export default function AdminPage() {
     [...lista].sort((a, b) => a.data.localeCompare(b.data))
   );
 
+  const livroAtual = livroSelecionado ? livroPorNome(livroSelecionado) : null;
+
   return (
     <div className="inicio-pagina">
       <header className="inicio-cabecalho">
@@ -1354,6 +1744,16 @@ export default function AdminPage() {
         </Link>
 
         <nav className="admin-menu">
+          <button
+            type="button"
+            className={`admin-botao-menu ${
+              mostrarVersiculos ? "admin-botao-menu-ativo" : ""
+            }`}
+            onClick={() => setMostrarVersiculos((v) => !v)}
+          >
+            Versículos
+          </button>
+
           <button
             type="button"
             className={`admin-botao-menu ${
@@ -1421,6 +1821,59 @@ export default function AdminPage() {
           Gerencie membros, funções, escala e restrições do time.
         </p>
 
+        {mostrarVersiculos && (
+          <section className="inicio-cartao">
+
+            {erroVersiculos ? (
+              <p className="inicio-texto-suave">{erroVersiculos}</p>
+            ) : versiculos.length === 0 ? (
+              <p className="inicio-texto-suave">
+                Nenhum versículo cadastrado.
+              </p>
+            ) : (
+              <table className="admin-tabela">
+                <thead>
+                  <tr>
+                    <th>Referência</th>
+                    <th>Texto</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {versiculos.map((versiculo) => (
+                    <tr key={versiculo.id}>
+                      <td>{versiculo.referencia}</td>
+
+                      <td style={{ maxWidth: 420 }}>{versiculo.texto}</td>
+
+                      <td>
+                        <div className="admin-acoes">
+                          <button
+                            type="button"
+                            className="admin-botao-editar"
+                            onClick={() => abrirModalVersiculo(versiculo)}
+                          >
+                            Editar
+                          </button>
+
+                          <button
+                            type="button"
+                            className="admin-botao-apagar"
+                            onClick={() => apagarVersiculo(versiculo)}
+                          >
+                            Apagar
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
+        )}
+
         {mostrarMembros && (
           <section className="inicio-cartao">
             <div
@@ -1432,20 +1885,6 @@ export default function AdminPage() {
               }}
             >
               <h3 className="inicio-cartao-titulo">Membros</h3>
-
-              <button
-                type="button"
-                className="admin-botao-editar"
-                onClick={() => {
-                  setMembroEditando(null);
-                  setNome("");
-                  setSobrenome("");
-                  setAtribuicoes([]);
-                  setModalAberto(true);
-                }}
-              >
-                Novo membro
-              </button>
             </div>
 
             {erroMembros ? (
@@ -1513,14 +1952,6 @@ export default function AdminPage() {
               }}
             >
               <h3 className="inicio-cartao-titulo">Funções</h3>
-
-              <button
-                type="button"
-                className="admin-botao-editar"
-                onClick={() => setModalFuncaoAberto(true)}
-              >
-                Nova função
-              </button>
             </div>
 
             {funcoes.length === 0 ? (
@@ -1653,13 +2084,58 @@ export default function AdminPage() {
           </section>
         )}
 
+        {mostrarAvisos && avisosPublicados.length > 0 && (
+          <div className="admin-grade-avisos admin-grade-avisos-pagina">
+            {avisosPublicados.map((avisoPublicado) => (
+              <figure className="admin-aviso" key={avisoPublicado.id}>
+                <button
+                  type="button"
+                  className="admin-aviso-abrir"
+                  onClick={() => setAvisoAmpliado(avisoPublicado)}
+                  title="Ver em tela cheia"
+                  aria-label={`Ver ${
+                    avisoPublicado.observacao ?? "aviso"
+                  } em tela cheia`}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    padding: 0,
+                    margin: 0,
+                    display: "block",
+                    width: "100%",
+                    cursor: "zoom-in",
+                  }}
+                >
+                  <img
+                    src={avisoPublicado.imagem_url}
+                    alt={avisoPublicado.observacao ?? "Aviso"}
+                    className="admin-aviso-imagem"
+                  />
+                </button>
+
+                {avisoPublicado.observacao && (
+                  <figcaption className="admin-aviso-observacao">
+                    {avisoPublicado.observacao}
+                  </figcaption>
+                )}
+
+                <button
+                  type="button"
+                  className="admin-botao-apagar"
+                  onClick={() => apagarAviso(avisoPublicado)}
+                >
+                  Apagar
+                </button>
+              </figure>
+            ))}
+          </div>
+        )}
+
         {mostrarAvisos && (
           <section className="inicio-cartao">
-            <h3 className="inicio-cartao-titulo">Avisos</h3>
-
-            <h4 style={{ margin: "12px 0 4px" }}>
+            <h3 className="inicio-cartao-titulo">
               Solicitações de cadastro
-            </h4>
+            </h3>
 
             {erroSolicitacoes ? (
               <p className="inicio-texto-suave">{erroSolicitacoes}</p>
@@ -1756,16 +2232,413 @@ export default function AdminPage() {
         )}
       </main>
 
-      {mostrarRestricoes && (
-        <button
-          type="button"
-          className="admin-botao-flutuante"
-          onClick={() => setModalRestricaoAberto(true)}
-          aria-label="Adicionar restrição"
-          title="Adicionar restrição"
+      {(() => {
+        const flutuantes: {
+          chave: string;
+          rotulo: string;
+          acao: () => void;
+        }[] = [];
+
+        if (mostrarRestricoes) {
+          flutuantes.push({
+            chave: "restricao",
+            rotulo: "Adicionar restrição",
+            acao: () => setModalRestricaoAberto(true),
+          });
+        }
+
+        if (mostrarAvisos) {
+          flutuantes.push({
+            chave: "aviso",
+            rotulo: "Adicionar aviso",
+            acao: () => setModalAvisoAberto(true),
+          });
+        }
+
+        if (mostrarVersiculos) {
+          flutuantes.push({
+            chave: "versiculo",
+            rotulo: "Adicionar versículo",
+            acao: () => abrirModalVersiculo(null),
+          });
+        }
+
+        if (mostrarMembros) {
+          flutuantes.push({
+            chave: "membro",
+            rotulo: "Novo membro",
+            acao: () => {
+              setMembroEditando(null);
+              setNome("");
+              setSobrenome("");
+              setAtribuicoes([]);
+              setModalAberto(true);
+            },
+          });
+        }
+
+        if (mostrarFuncoes) {
+          flutuantes.push({
+            chave: "funcao",
+            rotulo: "Nova função",
+            acao: () => setModalFuncaoAberto(true),
+          });
+        }
+
+        return flutuantes.map((botao, indice) => (
+          <button
+            key={botao.chave}
+            type="button"
+            className="admin-botao-flutuante"
+            style={{ bottom: 24 + indice * 64 }}
+            onClick={botao.acao}
+            aria-label={botao.rotulo}
+            title={botao.rotulo}
+          >
+            +
+          </button>
+        ));
+      })()}
+
+      {avisoAmpliado && (
+        <div
+          className="admin-aviso-tela-cheia"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setAvisoAmpliado(null)}
         >
-          +
-        </button>
+          <button
+            type="button"
+            className="admin-aviso-tela-cheia-fechar"
+            onClick={() => setAvisoAmpliado(null)}
+            aria-label="Fechar"
+            title="Fechar (Esc)"
+          >
+            ✕
+          </button>
+
+          <img
+            src={avisoAmpliado.imagem_url}
+            alt={avisoAmpliado.observacao ?? "Aviso"}
+            className="admin-aviso-tela-cheia-imagem"
+            onClick={() => setAvisoAmpliado(null)}
+          />
+
+          {avisoAmpliado.observacao && (
+            <p className="admin-aviso-tela-cheia-legenda">
+              {avisoAmpliado.observacao}
+            </p>
+          )}
+        </div>
+      )}
+
+      {modalAvisoAberto && (
+        <div className="admin-modal-fundo" onClick={fecharModalAviso}>
+          <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
+            <h2 className="admin-modal-titulo">Novo aviso</h2>
+
+            <form onSubmit={publicarAviso} className="login-formulario">
+              <div>
+                <label className="login-rotulo">Imagem</label>
+
+                <input
+                  ref={inputGaleriaRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  style={{ display: "none" }}
+                  onChange={(e) => selecionarFotoAviso(e.target.files?.[0])}
+                />
+
+                <input
+                  ref={inputCameraRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  style={{ display: "none" }}
+                  onChange={(e) => selecionarFotoAviso(e.target.files?.[0])}
+                />
+
+                <div className="admin-acoes">
+                  <button
+                    type="button"
+                    className="admin-botao-editar"
+                    onClick={() => inputGaleriaRef.current?.click()}
+                  >
+                    Escolher do armazenamento
+                  </button>
+
+                  <button
+                    type="button"
+                    className="admin-botao-editar"
+                    onClick={() => inputCameraRef.current?.click()}
+                  >
+                    Tirar foto
+                  </button>
+                </div>
+
+                <p className="biblia-dica">
+                  JPG, PNG ou WebP de até 5 MB.
+                </p>
+              </div>
+
+              {previewAviso && (
+                <img
+                  src={previewAviso}
+                  alt="Pré-visualização do aviso"
+                  className="admin-aviso-preview"
+                />
+              )}
+
+              <div>
+                <label htmlFor="observacao-aviso" className="login-rotulo">
+                  Observação (opcional)
+                </label>
+
+                <input
+                  id="observacao-aviso"
+                  type="text"
+                  value={observacaoAviso}
+                  onChange={(e) => setObservacaoAviso(e.target.value)}
+                  placeholder="Ex: Culto de domingo às 18h"
+                  className="login-campo"
+                  style={{ width: "100%", boxSizing: "border-box" }}
+                />
+              </div>
+
+              <div className="admin-modal-acoes">
+                <button
+                  type="button"
+                  className="admin-modal-cancelar"
+                  onClick={fecharModalAviso}
+                >
+                  Cancelar
+                </button>
+
+                <button
+                  type="submit"
+                  className="login-botao admin-modal-salvar"
+                  disabled={enviandoAviso || !fotoAviso}
+                >
+                  {enviandoAviso ? "Enviando..." : "Publicar"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {modalVersiculoAberto && (
+        <div className="admin-modal-fundo" onClick={fecharModalVersiculo}>
+          <div
+            className="admin-modal admin-modal-versiculo"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="admin-modal-titulo">
+              {versiculoEditando !== null
+                ? "Editar versículo"
+                : "Novo versículo"}
+            </h2>
+
+            <form onSubmit={salvarVersiculo} className="login-formulario">
+              <div className="biblia-seletor">
+                <div className="biblia-abas">
+                  <button
+                    type="button"
+                    className={`biblia-aba ${
+                      abaBiblia === "AT" ? "biblia-aba-ativa" : ""
+                    }`}
+                    onClick={() => setAbaBiblia("AT")}
+                  >
+                    Antigo Testamento
+                  </button>
+
+                  <button
+                    type="button"
+                    className={`biblia-aba ${
+                      abaBiblia === "NT" ? "biblia-aba-ativa" : ""
+                    }`}
+                    onClick={() => setAbaBiblia("NT")}
+                  >
+                    Novo Testamento
+                  </button>
+                </div>
+
+                <div className="biblia-grade-livros">
+                  {livrosDoTestamento(abaBiblia).map((livro) => (
+                    <button
+                      key={livro.nome}
+                      type="button"
+                      className={`biblia-livro ${
+                        livroSelecionado === livro.nome
+                          ? "biblia-livro-ativo"
+                          : ""
+                      }`}
+                      style={{ backgroundColor: coresGrupos[livro.grupo] }}
+                      title={`${livro.nome} — ${livro.capitulos} capítulos`}
+                      onClick={() => {
+                        setLivroSelecionado(livro.nome);
+                        setCapituloSelecionado(null);
+                        setVersiculoSelecionado("");
+                        setErroVersiculo("");
+                      }}
+                    >
+                      <span className="biblia-livro-abreviacao">
+                        {livro.abreviacao}
+                      </span>
+                      <span className="biblia-livro-nome">{livro.nome}</span>
+                    </button>
+                  ))}
+                </div>
+
+                {livroAtual && (
+                  <div className="biblia-grade-capitulos">
+                    {Array.from(
+                      { length: livroAtual.capitulos },
+                      (_, i) => i + 1
+                    ).map((numero) => (
+                      <button
+                        key={numero}
+                        type="button"
+                        className={`biblia-capitulo ${
+                          capituloSelecionado === numero
+                            ? "biblia-capitulo-ativo"
+                            : ""
+                        }`}
+                        onClick={() => {
+                          setCapituloSelecionado(numero);
+                          setVersiculoSelecionado("");
+                          setErroVersiculo("");
+                        }}
+                      >
+                        {numero}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {livroAtual && capituloSelecionado && (
+                  <div>
+                    <label className="login-rotulo">Versículo</label>
+
+                    {totalVersiculos === null ? (
+                      <p className="biblia-dica">
+                        Carregando os versículos do capítulo...
+                      </p>
+                    ) : (
+                      <>
+                        <div className="biblia-grade-capitulos">
+                          {Array.from(
+                            { length: totalVersiculos },
+                            (_, i) => i + 1
+                          ).map((numero) => (
+                            <button
+                              key={numero}
+                              type="button"
+                              className={`biblia-capitulo ${
+                                versiculoSelecionado === String(numero)
+                                  ? "biblia-capitulo-ativo"
+                                  : ""
+                              }`}
+                              onClick={() => {
+                                setVersiculoSelecionado(String(numero));
+                                setErroVersiculo("");
+                              }}
+                            >
+                              {numero}
+                            </button>
+                          ))}
+                        </div>
+
+                        <p className="biblia-dica">
+                          Este capítulo tem {totalVersiculos} versículos.
+                        </p>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label htmlFor="referencia-versiculo" className="login-rotulo">
+                  Referência
+                </label>
+
+                <input
+                  id="referencia-versiculo"
+                  type="text"
+                  required
+                  value={referenciaVersiculo}
+                  onChange={(e) => {
+                    setReferenciaVersiculo(e.target.value);
+                    setErroVersiculo("");
+                  }}
+                  placeholder="Ex: Salmos 23:1"
+                  className="login-campo"
+                  style={{ width: "100%", boxSizing: "border-box" }}
+                />
+
+                <p className="biblia-referencia-preview">
+                  {livroSelecionado && capituloSelecionado
+                    ? "Referência montada pela seleção acima. Pode editar se precisar."
+                    : "Escolha livro, capítulo e versículo acima, ou digite direto."}
+                </p>
+              </div>
+
+              <div>
+                <label className="login-rotulo">Texto</label>
+
+                {carregandoTexto ? (
+                  <p className="biblia-texto-carregando">
+                    Buscando o texto na Bíblia...
+                  </p>
+                ) : erroTexto ? (
+                  <p className="login-erro" role="alert">
+                    {erroTexto}
+                  </p>
+                ) : textoVersiculo ? (
+                  <div className="biblia-texto-preview">{textoVersiculo}</div>
+                ) : (
+                  <p className="biblia-texto-vazio">
+                    Escolha livro, capítulo e versículo para o texto aparecer
+                    aqui.
+                  </p>
+                )}
+              </div>
+
+              {erroVersiculo && (
+                <p className="login-erro" role="alert">
+                  {erroVersiculo}
+                </p>
+              )}
+
+              <div className="admin-modal-acoes">
+                <button
+                  type="button"
+                  className="admin-modal-cancelar"
+                  onClick={fecharModalVersiculo}
+                >
+                  Cancelar
+                </button>
+
+                <button
+                  type="submit"
+                  className="login-botao admin-modal-salvar"
+                  disabled={
+                    salvandoVersiculo ||
+                    carregandoTexto ||
+                    textoVersiculo.trim() === ""
+                  }
+                >
+                  {salvandoVersiculo
+                    ? "Salvando..."
+                    : versiculoEditando !== null
+                      ? "Salvar"
+                      : "Adicionar"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
       {modalRestricaoAberto && (

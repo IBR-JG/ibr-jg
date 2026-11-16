@@ -5,6 +5,12 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "../../lib/supabase";
 
+type Versiculo = {
+  id: string;
+  referencia: string;
+  texto: string;
+};
+
 type Usuario = {
   nome: string;
   sobrenome: string;
@@ -117,6 +123,12 @@ const funcoesComEnsaio = ["HOLYRICS", "OBS"];
 export default function InicioPage() {
   const router = useRouter();
 
+const [versiculos, setVersiculos] = useState<Versiculo[]>([]);
+const [versiculoSorteado, setVersiculoSorteado] = useState<Versiculo | null>(
+  null
+);
+const [erroVersiculos, setErroVersiculos] = useState("");
+
   const [usuario, setUsuario] = useState<Usuario | null>(null);
   const [restricoes, setRestricoes] = useState<Restricao[]>([]);
   const [erroRestricoes, setErroRestricoes] = useState("");
@@ -134,6 +146,9 @@ export default function InicioPage() {
   const [avisosPublicados, setAvisosPublicados] = useState<AvisoPublicado[]>(
     []
   );
+
+  // Aviso aberto em tela cheia (null = fechado)
+const [avisoAmpliado, setAvisoAmpliado] = useState<AvisoPublicado | null>(null);
 
   const [notificacao, setNotificacao] = useState("");
   const [aviso, setAviso] = useState("");
@@ -199,6 +214,8 @@ export default function InicioPage() {
   useEffect(() => {
     const salvo = localStorage.getItem("usuario");
 
+void carregarVersiculos();
+
     if (!salvo) {
       router.replace("/login");
       return;
@@ -255,6 +272,24 @@ export default function InicioPage() {
       })
     );
   }, [usuario, mostrarRestricoes, mostrarEscala, mostrarAvisos]);
+
+// Fecha a imagem ampliada com Esc e trava a rolagem do fundo
+useEffect(() => {
+  if (!avisoAmpliado) return;
+
+  const aoTeclar = (evento: KeyboardEvent) => {
+    if (evento.key === "Escape") setAvisoAmpliado(null);
+  };
+
+  const rolagemAnterior = document.body.style.overflow;
+  document.body.style.overflow = "hidden";
+  window.addEventListener("keydown", aoTeclar);
+
+  return () => {
+    window.removeEventListener("keydown", aoTeclar);
+    document.body.style.overflow = rolagemAnterior;
+  };
+}, [avisoAmpliado]);
 
   const sair = () => {
     localStorage.removeItem("usuario");
@@ -322,6 +357,46 @@ export default function InicioPage() {
     void carregarAvisos();
     setMostrarAvisos((visivel) => !visivel);
   };
+
+  const sortearVersiculo = useCallback((lista: Versiculo[]) => {
+  if (lista.length === 0) {
+    setVersiculoSorteado(null);
+    return;
+  }
+
+  setVersiculoSorteado((atual) => {
+    if (lista.length === 1) return lista[0];
+
+    const candidatos = atual
+      ? lista.filter((v) => v.id !== atual.id)
+      : lista;
+
+    return (
+      candidatos[Math.floor(Math.random() * candidatos.length)] ?? lista[0]
+    );
+  });
+}, []);
+
+const carregarVersiculos = useCallback(async () => {
+  const { data, error } = await supabase
+    .from("versiculos")
+    .select("id, referencia, texto")
+    .order("criado_em", { ascending: true });
+
+  if (error) {
+    console.error("Erro ao carregar versículos:", error.message);
+    setErroVersiculos(
+      `Não foi possível carregar o versículo: ${error.message}`
+    );
+    return;
+  }
+
+  setErroVersiculos("");
+
+  const lista = (data ?? []) as Versiculo[];
+  setVersiculos(lista);
+  sortearVersiculo(lista);
+}, [sortearVersiculo]);
 
   const ehLider = usuario?.atribuicoes?.some(
     (atribuicao) => atribuicao.trim().toLocaleLowerCase("pt-BR") === "líder"
@@ -503,7 +578,7 @@ export default function InicioPage() {
         <h1 className="inicio-titulo">Olá, {usuario.nome}!</h1>
 
         <p className="inicio-subtitulo">
-          Bem-vindo ao sistema de escalas do time de comunicação.
+          Bem-vindo ao site do time de comunicação.
         </p>
 
         {mostrarEscala && (
@@ -687,15 +762,25 @@ export default function InicioPage() {
                     margin: "10px 0",
                   }}
                 >
-                  <img
-                    src={avisoPublicado.imagem_url}
-                    alt="Aviso"
-                    style={{
-                      width: "100%",
-                      borderRadius: 8,
-                      display: "block",
-                    }}
-                  />
+                  <button
+                    type="button"
+                    className="inicio-aviso-abrir"
+                    onClick={() => setAvisoAmpliado(avisoPublicado)}
+                    title="Ver em tela cheia"
+                    aria-label={`Ver ${
+                      avisoPublicado.observacao ?? "aviso"
+                    } em tela cheia`}
+                  >
+                    <img
+                      src={avisoPublicado.imagem_url}
+                      alt="Aviso"
+                      style={{
+                        width: "100%",
+                        borderRadius: 8,
+                        display: "block",
+                      }}
+                    />
+                  </button>
 
                   {avisoPublicado.observacao && (
                     <p style={{ margin: "8px 0 2px" }}>
@@ -715,20 +800,50 @@ export default function InicioPage() {
           </section>
         )}
 
+        <section className="inicio-versiculo-fundo">
+  <p className="inicio-versiculo-rotulo">Versículo do dia</p>
+
+  {erroVersiculos ? (
+    <p className="inicio-versiculo-texto">{erroVersiculos}</p>
+  ) : versiculoSorteado ? (
+    <>
+      <p className="inicio-versiculo-texto">{versiculoSorteado.texto}</p>
+
+      <p className="inicio-versiculo-referencia">
+        {versiculoSorteado.referencia}
+      </p>
+
+      <button
+        type="button"
+        className="inicio-versiculo-trocar"
+        onClick={() => sortearVersiculo(versiculos)}
+      >
+        Outro versículo
+      </button>
+    </>
+  ) : (
+    <p className="inicio-versiculo-texto">Nenhum versículo cadastrado.</p>
+  )}
+</section>
+
         <div className="inicio-grade">
           <section className="inicio-cartao">
-            <h3 className="inicio-cartao-titulo">Meu perfil</h3>
+  <h3 className="inicio-cartao-titulo">Meu perfil</h3>
 
-            <p>
-              {usuario.nome} {usuario.sobrenome}
-            </p>
+  <p>
+    {usuario.nome} {usuario.sobrenome}
+  </p>
 
-            <p className="inicio-texto-suave">
-              {usuario.atribuicoes?.length > 0
-                ? usuario.atribuicoes.join(", ")
-                : "Nenhuma função selecionada"}
-            </p>
-          </section>
+  <p className="inicio-texto-suave">
+    {usuario.atribuicoes?.length > 0
+      ? usuario.atribuicoes.join(", ")
+      : "Nenhuma função selecionada"}
+  </p>
+
+  <Link href="/perfil" className="inicio-link-perfil">
+    Trocar nome ou senha
+  </Link>
+</section>
 
           <section className="inicio-cartao">
             <h3 className="inicio-cartao-titulo">Minhas Escalas</h3>
@@ -744,8 +859,7 @@ export default function InicioPage() {
                   style={{ margin: "5px 0" }}
                 >
                   {formatarDiaMes(item.data)}/
-                  {item.periodo === "manha" ? "manhã" : "noite"} -{" "}
-                  {item.funcao} - {usuario.nome}
+{item.periodo === "manha" ? "manhã" : "noite"} - {item.funcao}
                 </p>
               ))
             )}
@@ -945,7 +1059,38 @@ export default function InicioPage() {
           {aviso}
         </div>
       )}
+
+      {avisoAmpliado && (
+        <div
+          className="admin-aviso-tela-cheia"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setAvisoAmpliado(null)}
+        >
+          <button
+            type="button"
+            className="admin-aviso-tela-cheia-fechar"
+            onClick={() => setAvisoAmpliado(null)}
+            aria-label="Fechar"
+            title="Fechar (Esc)"
+          >
+            ✕
+          </button>
+
+          <img
+            src={avisoAmpliado.imagem_url}
+            alt={avisoAmpliado.observacao ?? "Aviso"}
+            className="admin-aviso-tela-cheia-imagem"
+            onClick={() => setAvisoAmpliado(null)}
+          />
+
+          {avisoAmpliado.observacao && (
+            <p className="admin-aviso-tela-cheia-legenda">
+              {avisoAmpliado.observacao}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
-

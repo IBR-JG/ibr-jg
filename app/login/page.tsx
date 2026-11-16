@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "../../lib/supabase";
+import { supabase, erroConfiguracao } from "../../lib/supabase";
 
 type Usuario = {
   nome: string;
@@ -36,8 +36,9 @@ export default function LoginPage() {
   const [erro, setErro] = useState("");
   const [carregando, setCarregando] = useState(false);
 
-  // Inclui também as funções extras cadastradas pelo admin, se existirem
   useEffect(() => {
+    console.log("[login] hidratado");
+
     try {
       const salvas = JSON.parse(
         localStorage.getItem("funcoes") || "[]"
@@ -71,12 +72,24 @@ export default function LoginPage() {
   const entrar = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setErro("");
+
+    if (erroConfiguracao || !supabase) {
+      setErro(erroConfiguracao ?? "Supabase não configurado.");
+      return;
+    }
+
+    if (!nome.trim() || !senha) {
+      setErro("Preencha nome e senha.");
+      return;
+    }
+
     setCarregando(true);
 
     try {
-      const { data, error } = await supabase
-        .from("usuarios")
-        .select("nome, sobrenome, atribuicoes, senha");
+      const { data, error } = await supabase.rpc("login_usuario", {
+        p_nome: nome.trim(),
+        p_senha: senha,
+      });
 
       if (error) {
         console.error("Erro no login:", error);
@@ -84,16 +97,12 @@ export default function LoginPage() {
         return;
       }
 
-      const encontrado = (data ?? []).find(
-        (u) =>
-          normalizarNome(u.nome) === normalizarNome(nome) &&
-          (u.senha ?? "") === senha
-      );
-
-      if (!encontrado) {
+      if (!data) {
         setErro("Nome ou senha incorretos.");
         return;
       }
+
+      const encontrado = data as Usuario;
 
       localStorage.setItem(
         "usuario",
@@ -104,7 +113,7 @@ export default function LoginPage() {
         })
       );
 
-      router.push("/inicio");
+      router.replace("/inicio");
     } catch (err) {
       console.error("Erro inesperado no login:", err);
       setErro("Erro inesperado ao tentar entrar.");
@@ -117,6 +126,11 @@ export default function LoginPage() {
     e.preventDefault();
     setErro("");
 
+    if (erroConfiguracao || !supabase) {
+      setErro(erroConfiguracao ?? "Supabase não configurado.");
+      return;
+    }
+
     if (!nome.trim() || !senha) {
       setErro("Preencha nome e senha.");
       return;
@@ -124,23 +138,28 @@ export default function LoginPage() {
 
     setCarregando(true);
 
-    const { error } = await supabase.from("solicitacoes").insert({
-      nome: nome.trim(),
-      sobrenome: sobrenome.trim(),
-      atribuicoes,
-      senha,
-    });
+    try {
+      const { error } = await supabase.from("solicitacoes").insert({
+        nome: nome.trim(),
+        sobrenome: sobrenome.trim(),
+        atribuicoes,
+        senha,
+      });
 
-    setCarregando(false);
+      if (error) {
+        console.error("Erro ao registrar:", error);
+        setErro(`Falha ao enviar o cadastro: ${error.message}`);
+        return;
+      }
 
-    if (error) {
-      console.error("Erro ao registrar:", error);
-      setErro(`Falha ao enviar o cadastro: ${error.message}`);
-      return;
+      alert("Cadastro enviado! Aguarde a aprovação do líder.");
+      trocarModo();
+    } catch (err) {
+      console.error("Erro inesperado no registro:", err);
+      setErro("Erro inesperado ao enviar o cadastro.");
+    } finally {
+      setCarregando(false);
     }
-
-    alert("Cadastro enviado! Aguarde a aprovação do líder.");
-    trocarModo();
   };
 
   return (
@@ -231,6 +250,22 @@ export default function LoginPage() {
                 className="login-campo"
               />
             </div>
+
+            <div>
+              <label className="login-rotulo" htmlFor="registro-sobrenome">
+                Sobrenome
+              </label>
+
+              <input
+                id="registro-sobrenome"
+                type="text"
+                value={sobrenome}
+                onChange={(e) => setSobrenome(e.target.value)}
+                placeholder="Digite seu sobrenome"
+                className="login-campo"
+              />
+            </div>
+
             <div>
               <label className="login-rotulo" htmlFor="registro-senha">
                 Senha

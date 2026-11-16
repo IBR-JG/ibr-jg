@@ -934,3 +934,379 @@ select.login-campo option {
   color: #ffffff; /* troque pela cor do texto do seu tema */
 }
 
+.inicio-link-perfil {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 13px;
+  color: inherit;
+  text-decoration: underline;
+  opacity: 0.75;
+}
+
+.inicio-link-perfil:hover {
+  opacity: 1;
+}
+
+.inicio-versiculo-fundo {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  min-height: 200px;
+  margin: 0 0 16px;
+  padding: 28px 24px;
+  border-radius: 16px;
+  overflow: hidden;
+  color: #fff;
+  background-color: #7f1d1d;
+  background-image: linear-gradient(
+      rgba(0, 0, 0, 0.55),
+      rgba(0, 0, 0, 0.55)
+    ),
+    url("/versiculo.jpg");
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.inicio-versiculo-rotulo {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.8;
+}
+
+.inicio-versiculo-texto {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.5;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+.inicio-versiculo-referencia {
+  margin: 0;
+  font-size: 13px;
+  opacity: 0.85;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+.inicio-versiculo-trocar {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 0;
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 13px;
+  color: #fff;
+  text-decoration: underline;
+  opacity: 0.85;
+  cursor: pointer;
+}
+
+.inicio-versiculo-trocar:hover {
+  opacity: 1;
+}
+
+.admin-modal-versiculo {
+  width: min(760px, 94vw);
+  max-width: 760px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.biblia-seletor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.biblia-abas {
+  display: flex;
+  gap: 8px;
+}
+
+.biblia-aba {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid rgba(128, 128, 128, 0.4);
+  border-radius: 8px;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  color: inherit;
+  cursor: pointer;
+}
+
+.biblia-aba-ativa {
+  background: #7f1d1d;
+  border-color: #7f1d1d;
+  color: #fff;
+  font-weight: 600;
+}
+
+.biblia-grade-livros {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
+  gap: 6px;
+}
+
+.biblia-livro {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 52px;
+  padding: 6px 4px;
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+  opacity: 0.92;
+  transition: transform 0.12s ease, opacity 0.12s ease;
+}
+
+.biblia-livro:hover {
+  opacity: 1;
+  transform: translateY(-1px);
+}
+
+.biblia-livro-ativo {
+  outline: 3px solid #fff;
+  outline-offset: -3px;
+  opacity: 1;
+}
+
+.biblia-livro-abreviacao {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.biblia-livro-nome {
+  font-size: 9px;
+  line-height: 1.1;
+  text-align: center;
+  opacity: 0.9;
+}
+
+.biblia-grade-capitulos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(38px, 1fr));
+  gap: 5px;
+  max-height: 190px;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.biblia-capitulo {
+  padding: 8px 0;
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  color: inherit;
+  cursor: pointer;
+}
+
+.biblia-capitulo:hover {
+  background: rgba(127, 29, 29, 0.12);
+}
+
+.biblia-capitulo-ativo {
+  background: #7f1d1d;
+  border-color: #7f1d1d;
+  color: #fff;
+  font-weight: 700;
+}
+
+.biblia-referencia-preview {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--cor-texto-suave, #666);
+}
+
+.biblia-texto-preview {
+  margin-top: 4px;
+  padding: 12px 14px;
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  border-radius: 8px;
+  background: rgba(127, 29, 29, 0.05);
+  font-size: 15px;
+  line-height: 1.55;
+  min-height: 96px;
+  white-space: pre-wrap;
+}
+
+.biblia-texto-carregando,
+.biblia-texto-vazio {
+  margin: 4px 0 0;
+  padding: 12px 14px;
+  border: 1px dashed rgba(128, 128, 128, 0.4);
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--cor-texto-suave, #666);
+}
+
+.biblia-dica {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--cor-texto-suave, #666);
+}
+
+.admin-grade-avisos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.admin-aviso {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.admin-aviso-imagem {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 8px;
+  display: block;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+.admin-aviso-observacao {
+  font-size: 14px;
+  color: var(--cor-texto-suave, #6b6b6b);
+}
+
+.admin-aviso-preview {
+  width: 100%;
+  max-height: 260px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #f5f2ec;
+}
+
+.admin-grade-avisos-pagina {
+  margin-top: 24px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+
+.admin-grade-avisos-pagina {
+  margin-top: 24px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 16px;
+}
+
+.admin-grade-avisos-pagina .admin-aviso {
+  width: 220px;
+  max-width: 100%;
+}
+
+.admin-grade-avisos-pagina .admin-aviso {
+  width: 400px;
+  max-width: 100%;
+}
+
+.admin-aviso-tela-cheia {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.92);
+  cursor: zoom-out;
+}
+
+.admin-aviso-tela-cheia-imagem {
+  max-width: 100%;
+  max-height: 86vh;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  cursor: zoom-out;
+}
+
+.admin-aviso-tela-cheia-legenda {
+  margin: 0;
+  max-width: 90vw;
+  color: #fff;
+  font-size: 15px;
+  text-align: center;
+}
+
+.admin-aviso-tela-cheia-fechar {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.admin-aviso-tela-cheia-fechar:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.admin-acoes-flutuantes {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  z-index: 40;
+}
+
+.admin-flutuante {
+  width: 56px;
+  height: 56px;
+  border: none;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 28px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+}
+
+.admin-flutuante-membro {
+  background: var(--cor-primaria, #6b1f1f);
+}
+
+.admin-flutuante-funcao {
+  background: #8a5a2b;
+}
+
+.admin-flutuante:hover {
+  filter: brightness(1.08);
+}
+
